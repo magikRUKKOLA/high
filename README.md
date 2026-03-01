@@ -122,8 +122,11 @@ high -m Qwen3.5 -R "you are professional system architect with 50y experience" "
 
 ```bash
 # Select a conversation from history (interactive TUI)
+# (If xclip is installed also copies the id of the selected
+# conversation into be clipboard)
 high --list
 
+# Alternatively, the non-interactive mode:
 high --list | head -n 72 | tail 
 > conv_1772224588366 (2026-02-28 10:27) [Qwen3.5-397B-A17B-IQ2_KL]
 > conv_1772225893755 (2026-02-27 22:58) [Kimi-K2.5-GGUF_IQ3_K] [Interrupted]
@@ -136,8 +139,8 @@ high --list | head -n 72 | tail
 > conv_1772216654829 (2026-02-27 20:39) [Qwen3.5-397B-A17B-IQ2_KL]
 > conv_1772217147864 (2026-02-27 20:32) [Kimi-K2.5-GGUF_IQ3_K] [Interrupted]
 
-# Copy conversation ID to clipboard (requires xclip)
-high -s conv_1771897941504  # ID copied to clipboard
+# Display the target conversation
+high -s conv_1772224588366
 
 # Plain text output for piping
 high-plain -s conv_1771897941504 | less
