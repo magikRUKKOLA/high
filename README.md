@@ -137,14 +137,11 @@ Injects file contents with proper markdown codeblocks into LLM prompts.
 # Single file
 pre src/main.cpp | high "Review this code"
 
-# Multiple files
-pre src/*.cpp include/*.h | high "Analyze the architecture"
-
 # Directory search
 pre ./src "*.py" | high "Find all Python files and explain their purpose"
 
-# No arguments (find all supported files)
-pre | high "What does this codebase do?"
+# Multiple files
+pre src/*.*pp include/*.h | high "Analyze the architecture"
 
 # Combine with conversation
 pre docs/api.md | high -C "Update the documentation based on these changes"
@@ -166,7 +163,7 @@ Extracts codeblocks from `high` output (or any markdown source) with interactive
 
 **Usage:**
 ```bash
-# Extract codeblocks from conversatio
+# Extract codeblocks from conversation
 high -S -F | cb
 ```
 
@@ -253,6 +250,10 @@ pre src/*.cpp | high "Review this code for security issues"
 
 # Extract codeblocks from conversation
 high-plain -S | cb
+
+# List and apply the specific highlight theme
+highlight --list-scripts=themes | grep -F ': vim'
+high --theme bluegreen -S -f -p --md
 ```
 
 ## Files
