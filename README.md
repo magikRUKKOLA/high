@@ -8,6 +8,8 @@ Most TUI LLM suites today are implemented extremely inefficiently. For example, 
 
 `high` solves this with **Preview Mode**. It streams raw tokens immediately as "ghost text" so you can read the output as it generates, then seamlessly swaps in the syntax-highlighted version the moment the line completes.
 
+![Syntax Highlighting Demo](docs/tty.gif)
+
 This approach offers the control of real-time streaming with the polish of syntax highlighting, without the overhead of heavy TUI frameworks. The tool is basically a highly optimized clone of `mods` where all syntax highlighting work is delegated to `highlight` and all conversations are kept in `json`.
 
 ## Installation
