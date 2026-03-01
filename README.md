@@ -120,6 +120,18 @@ high -m Qwen3.5 -R "you are professional system architect with 50y experience" "
 # Select a conversation from history (interactive TUI)
 high --list
 
+high --list | head -n 72 | tail 
+> conv_1772224588366 (2026-02-28 10:27) [Qwen3.5-397B-A17B-IQ2_KL]
+> conv_1772225893755 (2026-02-27 22:58) [Kimi-K2.5-GGUF_IQ3_K] [Interrupted]
+> conv_1772224513458 (2026-02-27 22:35) [Qwen3.5-397B-A17B-IQ2_KL]
+> conv_1772220106336 (2026-02-27 21:55) [Qwen3.5-397B-A17B-IQ4_KSS]
+> conv_1772219943271 (2026-02-27 21:47) [Qwen3.5-397B-A17B-IQ2_KL]
+> conv_1772221157687 (2026-02-27 21:39) [Kimi-K2.5-GGUF_IQ3_K]
+> conv_1772219392149 (2026-02-27 21:09) [Kimi-K2.5-GGUF_IQ3_K] [Interrupted]
+> conv_1772216271607 (2026-02-27 20:43) [Qwen3.5-397B-A17B-IQ4_KSS]
+> conv_1772216654829 (2026-02-27 20:39) [Qwen3.5-397B-A17B-IQ2_KL]
+> conv_1772217147864 (2026-02-27 20:32) [Kimi-K2.5-GGUF_IQ3_K] [Interrupted]
+
 # Copy conversation ID to clipboard (requires xclip)
 high -s conv_1771897941504  # ID copied to clipboard
 
