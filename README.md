@@ -5,6 +5,7 @@ A minimalist, terminal-based interface for Large Language Models (LLMs) designed
 ## Motivation
 
 **Why Vibe Coding Fails - Ilya Sutskever**
+
 [![Why Vibe Coding Fails - Ilya Sutskever](https://img.youtube.com/vi/aIvHf8vsWBM/0.jpg)](https://www.youtube.com/watch?v=aIvHf8vsWBM)
 
 The major limitation of the current LLMs is the introduction of new bugs in the attempt to fix the target one(s).  The only possibly way out of it is to closely monitor what the LLM is doing, how does it thinking, what problems it might report (a missing source code header or a specification file a tool-call declaration?) and in case if any problem appears, once could just do `Ctrl + C` and continue the conversation by doing `high -C`.  Moreover, if one deals with a lot of code in the output of LLM the syntax highlighting simultaneously with streaming support are required. etc.
