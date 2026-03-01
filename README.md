@@ -262,6 +262,12 @@ high-plain -S | cb
 # List and apply the specific highlight theme
 highlight --list-scripts=themes | grep -F ': vim'
 high --theme bluegreen -S -f -p --md
+
+# "Feature: chat start-new should return or display new chat ID"
+# https://github.com/charmbracelet/mods/issues/675
+# 
+NEW_ID=$(high -m Qwen3.5 "hello" 2>/dev/stdout | grep -Eo 'conv_[0-9]+' | tail -n1)
+pre file.txt | high -c "$NEW_ID" --isolate "Message"
 ```
 
 ## Files
