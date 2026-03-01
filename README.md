@@ -12,7 +12,7 @@ A minimalistic, terminal-based interface for Large Language Models (LLMs) design
 
 The major limitation of the current LLMs is the introduction of new bugs in the attempt to fix the target one(s).  The only possible way out of it is to closely monitor what the LLM is doing, how does it thinking, what problems it might report (a missing source code header or a specification file a tool-call declaration?) and in case if any problem appears, one could just do `Ctrl + C` and continue the conversation by typing `high -C "clarifications..."`.  Moreover, if one deals with a lot of code in the output of LLM the syntax highlighting simultaneously with streaming support are required. etc.
 
-Most TUI LLM suites today are implemented extremely inefficiently. For example, `charmbracelet/mods` can delay final output by a minute or so (for a regular 10k ctx). `Claude Code` supports max 60 FPS.
+Most TUI LLM suites today are implemented extremely inefficiently. For example, [`charmbracelet/mods`](https://github.com/charmbracelet/mods/issues/635) can delay final output by a minute or so (for a regular 10k ctx). [`Claude Code` supports max 60 FPS](https://www.youtube.com/watch?v=LvW1HTSLPEk).
 
 `high` solves this with **Preview Mode**. It streams raw tokens immediately as "ghost text" so you can read the output as it generates, then seamlessly swaps in the syntax-highlighted version the moment the line completes.
 
