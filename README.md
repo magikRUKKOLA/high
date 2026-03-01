@@ -292,11 +292,11 @@ high --theme bluegreen -S -f -p --md
 
 ## See Also
 
-- `curl(1)` - HTTP client
-- `highlight(1)` - Syntax highlighting
-- `jq(1)` - JSON processor
-- `fzf(1)` - Fuzzy finder
-- `bat(1)` - Cat with syntax highlighting
+- [`curl(1)`](https://packages.debian.org/testing/curl) - HTTP client
+- [`highlight(1)`](https://packages.debian.org/testing/highlight) - Syntax highlighting
+- [`jq(1)`](https://packages.debian.org/testing/jq) - JSON processor
+- [`fzf(1)`](https://packages.debian.org/testing/fzf) - Fuzzy finder
+- [`bat(1)`](https://packages.debian.org/testing/bat) - Cat with syntax highlighting
 
 ## Bugs
 
