@@ -1,0 +1,246 @@
+.TH HIGH 1 "March 2026" "high 1.0.0" "User Commands"
+.SH NAME
+high \- Terminal-based LLM chat interface with low-latency streaming
+.SH SYNOPSIS
+.B high
+[\fIOPTIONS\fR] [\fIPROMPT\fR]
+.SH DESCRIPTION
+.B high
+is a minimalist, terminal-based interface for Large Language Models (LLMs)
+designed for low-latency feedback. It features zero-latency streaming with
+preview mode, smart syntax highlighting, conversation management, and
+seamless Unix pipeline integration.
+.SH OPTIONS
+.TP
+.BR \-e ", " \-\-api " " \fIURL\fR
+API base endpoint (default: http://localhost:8042/v1)
+.TP
+.BR \-m ", " \-\-model " " \fIMODEL\fR
+Model to use for chat completion
+.TP
+.BR \-M ", " \-\-ask\-model
+Interactive model selection
+.TP
+.BR \-L ", " \-\-models
+List available models
+.TP
+.BR \-c ", " \-\-continue " " \fITITLE\fR
+Continue from saved conversation (appends to same file)
+.TP
+.BR \-C ", " \-\-continue\-last
+Continue from last conversation (appends to same file)
+.TP
+.BR \-i ", " \-\-isolate
+Branch conversation (save as new conversation instead of appending)
+.RS
+When used with \fB\-c\fR or \fB\-C\fR, creates a new conversation branched from
+the specified one instead of appending to the existing file.
+.RE
+.TP
+.BR \-l ", " \-\-list
+List saved conversations (interactive TUI with fzf-style navigation)
+.TP
+.BR \-s ", " \-\-show " " \fITITLE\fR
+Show a saved conversation
+.TP
+.BR \-S ", " \-\-show\-last
+Show last saved conversation
+.TP
+.BR \-x ", " \-\-http\-proxy " " \fIURL\fR
+HTTP proxy URL
+.TP
+.BR \-f ", " \-\-format
+Enable markdown formatting
+.TP
+.BR \-r ", " \-\-raw
+Output raw JSON (for debugging)
+.TP
+.BR \-F ", " \-\-no\-format
+Plain text output (no markdown, overrides \fB\-f\fR and env vars)
+.TP
+.BR \-p ", " \-\-preview
+Preview code blocks with ghost text (zero-latency streaming)
+.TP
+.B \-\-md
+Enable markdown syntax highlighting
+.TP
+.BR \-\-tps " " \fIRATE\fR
+Tokens per second for streaming (controls output speed)
+.TP
+.BR \-\-chunk\-size " " \fIN\fR
+Characters per token chunk (default: 1)
+.TP
+.BR \-R ", " \-\-role " " \fIROLE\fR
+System role/prompt
+.TP
+.BR \-\-theme " " \fITHEME\fR
+Syntax highlight theme (default: xoria256)
+.TP
+.BR \-\-max\-tokens " " \fIN\fR
+Maximum response tokens
+.TP
+.BR \-\-log\-file " " \fIPATH\fR
+Log to file
+.TP
+.BR \-\-tab\-width " " \fIN\fR
+Tab width in spaces (default: 8, env: LLM_TAB_WIDTH)
+.TP
+.B \-\-config\-dump
+Output config as environment variables (for ~/.bashrc)
+.TP
+.B \-\-remove\-think\-tags
+Strip <think> ... </think> tags from assistant output (DeepSeek-R1 style)
+.TP
+.BR \-v ", " \-\-version
+Show version information
+.TP
+.BR \-h ", " \-\-help
+Show help message
+.SH CONVERSATION MODES
+.TP
+.B \-c TITLE
+Continue from saved conversation TITLE, append to same file
+.TP
+.B \-C
+Continue from last conversation, append to same file
+.TP
+.B \-c TITLE \-i
+Branch from TITLE, save as NEW conversation
+.TP
+.B \-C \-i
+Branch from last conversation, save as NEW conversation
+.TP
+.B (none)
+Start fresh conversation with auto-generated title
+.SH ENVIRONMENT VARIABLES
+.TP
+.B LLM_API_BASE
+API endpoint URL (default: http://localhost:8042/v1)
+.TP
+.B LLM_CONFIG_DIR
+Configuration directory (default: ~/.config/high)
+.TP
+.B LLM_SYSTEM_ROLE
+Default system prompt (default: "You are a helpful assistant.")
+.TP
+.B LLM_MAX_TOKENS
+Maximum tokens for response (default: 0 = unlimited)
+.TP
+.B LLM_TEMPERATURE
+Sampling temperature 0.0-2.0 (default: 1.0)
+.TP
+.B LLM_TIMEOUT
+Request timeout in seconds (default: 36000)
+.TP
+.B LLM_FORMAT_MARKDOWN
+Enable markdown formatting 1/0 (default: 1)
+.TP
+.B LLM_VERBOSE
+Verbose output 1/0 (default: 0)
+.TP
+.B LLM_RAW_OUTPUT
+Raw JSON output 1/0 (default: 0)
+.TP
+.B LLM_TAB_WIDTH
+Tab expansion width 1-16 (default: 8)
+.TP
+.B HIGHLIGHT_THEME
+Syntax highlighting theme (default: xoria256)
+.TP
+.B HIGH_PREVIEW_CODE
+Enable code preview mode 1/0 (default: 0)
+.TP
+.B HIGH_MARKDOWN_SYNTAX
+Enable markdown highlighting 1/0 (default: 1)
+.TP
+.B HTTP_PROXY
+HTTP proxy URL
+.SH EXTRA UTILITIES
+After running \fBsudo make install-extras\fR, two additional utilities are available:
+.SS pre \- File Context Provider
+Injects file contents with proper markdown codeblocks into LLM prompts.
+.TP
+.B Features
+Automatic language detection, recursive directory scanning (maxdepth 2),
+proper trailing newline handling, full path resolution.
+.TP
+.B Usage
+.B pre src/main.cpp | high -m Qwen3.5 -f -p --md "Review this code"
+.br
+.B pre src/*.*pp | high -m Kimi-K2.5 -f -p --md "Analyze the architecture"
+.br
+.B pre ./src "*.py" | high -f -p --md "Find all Python files"
+.TP
+.B Supported Extensions
+sh, bash, zsh, py, js, ts, rb, go, rs, c, cc, cpp, h, hpp, java, cs, php,
+html, htm, css, json, xml, yaml, yml, md, sql
+.SS cb \- Interactive Codeblock Extractor
+Extracts codeblocks from high output (or any markdown source) with interactive selection.
+.TP
+.B Features
+Parses markdown codeblocks, interactive TUI with fzf, preview with syntax
+highlighting (requires bat/batcat), automatic clipboard copy (requires xclip).
+.TP
+.B Usage
+.B high -s myconv -F | cb
+.br
+.B pre "*.md" | cb
+.TP
+.B Dependencies
+Required: fzf, awk. Optional: bat/batcat (enhanced preview), xclip (clipboard).
+.SH EXAMPLES
+.TP
+Basic usage:
+.B high "What is the capital of France?"
+.TP
+With specific model:
+.B high -m llama-3 "Explain quantum computing"
+.TP
+Continue last conversation:
+.B high -C "Add more details about..."
+.TP
+Branch from last conversation (create new):
+.B high -C -i "Try a different approach"
+.TP
+List conversations:
+.B high -l
+.TP
+Show conversation without think tags:
+.B high -s myconv --remove-think-tags
+.TP
+Pipe from curl:
+.B curl -s https://example.com/api | high "Summarize this"
+.TP
+Export configuration:
+.B high --config-dump >> ~/.bashrc
+.TP
+Use with pre utility:
+.B pre src/*.cpp | high "Review this code for security issues"
+.TP
+Extract codeblocks from conversation:
+.B high -S -F | cb
+.SH FILES
+.TP
+.I ~/.config/high/conversations/
+Directory containing saved conversations (JSON format)
+.TP
+.I /usr/local/share/high/
+Extra utilities (pre, cb) after \fBmake install-extras\fR
+.TP
+.I /usr/local/bin/pre
+Alias script for pre utility
+.TP
+.I /usr/local/bin/cb
+Alias script for cb utility
+.SH SEE ALSO
+.BR curl (1),
+.BR highlight (1),
+.BR jq (1),
+.BR fzf (1),
+.BR bat (1)
+.SH BUGS
+Report bugs at: https://github.com/magikRUKKOLA/high/issues
+.SH AUTHOR
+magikRUKKOLA <magikRUKKOLA@proton.me>
+.SH LICENSE
+GPL-3.0
