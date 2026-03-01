@@ -95,6 +95,11 @@ curl -s https://github.com/ikawrakow/ik_llama.cpp/issues/629 | html2text | high 
 ### Conversation management
 
 ```bash
+high --models
+> Kimi-K2.5-GGUF_IQ3_K
+> Qwen3.5-397B-A17B-IQ2_KL
+> Qwen3.5-397B-A17B-IQ4_KSS
+
 # Ask Kimi-K2.5 to make a script
 high -m Kimi-K2.5 "write a script for a full system backup into the .tar.gz archive"
 
