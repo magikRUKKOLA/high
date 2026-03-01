@@ -1,0 +1,22 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="flowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00ff88;stop-opacity:0.3" />
+      <stop offset="50%" style="stop-color:#00ff88;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00ff88;stop-opacity:0.3" />
+    </linearGradient>
+  </defs>
+  <rect width="200" height="200" fill="#0f0f23"/>
+  <g transform="translate(100,100)">
+    <circle r="70" fill="none" stroke="#00ff88" stroke-width="1" opacity="0.2"/>
+    <circle r="50" fill="none" stroke="#00ff88" stroke-width="1" opacity="0.3"/>
+    <circle r="30" fill="none" stroke="#00ff88" stroke-width="1" opacity="0.4"/>
+  </g>
+  <text x="50" y="105" font-family="monospace" font-size="48" fill="#fff" font-weight="bold">high</text>
+  <path d="M 40 120 Q 60 125 80 120 T 120 120" stroke="url(#flowGrad)" stroke-width="2" fill="none">
+    <animate attributeName="d" values="M 40 120 Q 60 125 80 120 T 120 120;M 40 120 Q 60 115 80 120 T 120 120;M 40 120 Q 60 125 80 120 T 120 120" dur="2s" repeatCount="indefinite"/>
+  </path>
+  <text x="35" y="145" font-family="monospace" font-size="10" fill="#00ff88">◆ low-latency streaming</text>
+  <text x="35" y="160" font-family="monospace" font-size="10" fill="#00ff88">◆ syntax highlighting</text>
+</svg>
+
