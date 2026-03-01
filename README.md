@@ -1,6 +1,8 @@
 # high
 
-A minimalist, terminal-based interface for Large Language Models (LLMs) designed for **low-latency feedback**.
+<img src="docs/logo.svg" style="width: 30%; height: auto;" alt="high">
+
+A minimalistic, terminal-based interface for Large Language Models (LLMs) designed for **low-latency feedback**.
 
 ## Motivation
 
