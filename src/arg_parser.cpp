@@ -99,6 +99,7 @@ private:
                   << "      --remove-think-tags  Strip think tags from assistant output\n"
                   << "  -v, --version        Show version information\n"
                   << "  -h, --help           Show help\n"
+                  << "  --banner             Show banner (/test TUI)\n"
                   << "\nExamples:\n"
                   << "  high -l                    # Interactive list\n"
                   << "  high -F -l                 # List for piping (no formatting)\n"
@@ -149,6 +150,7 @@ Args ArgParser::parse(int argc, char* argv[]) {
         // Long arguments mapping to single characters or special handling
         if (arg == "-h" || arg == "--help") { handler.handle('h'); }
         else if (arg == "-v" || arg == "--version") { handler.handle('v'); }
+        else if (arg == "--banner") { args.show_banner = true; }
         else if (arg == "-e" || arg == "--api") { 
             if (i+1 < argc) Config::instance().set_api_base(argv[++i]); 
         }

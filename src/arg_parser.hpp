@@ -25,6 +25,7 @@ struct Args {
     size_t stream_chunk_size = 1;
     bool debug_logging = false;
     int tab_width = 0;  // 0 = use config default
+    bool show_banner = false;
 };
 
 class ArgParser {

@@ -1,6 +1,7 @@
 #include "config.hpp"
 #include "logger.hpp"
 #include "loader.hpp"
+#include "banner.hpp"
 #include "api_client.hpp"
 #include "conversation_manager.hpp"
 #include "arg_parser.hpp"
@@ -405,6 +406,11 @@ int main(int argc, char* argv[]) {
 
     if (args.config_dump) {
         Config::instance().dump_as_env(std::cout);
+        return 0;
+    }
+
+    if (args.show_banner) {
+        Banner::run(0.0f);
         return 0;
     }
 
