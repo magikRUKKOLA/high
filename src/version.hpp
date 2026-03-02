@@ -1,9 +1,4 @@
 #ifndef VERSION_HPP
 #define VERSION_HPP
-
-#define HIGH_VERSION_MAJOR 1
-#define HIGH_VERSION_MINOR 0
-#define HIGH_VERSION_PATCH 0
-#define HIGH_VERSION_STRING "1.0.0"
-
+#define HIGH_VERSION_STRING "2c1f3d6"
 #endif

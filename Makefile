@@ -8,11 +8,8 @@
 # Clean:     make clean
 # =============================================================================
 
-# Version Configuration
-VERSION_MAJOR := 1
-VERSION_MINOR := 0
-VERSION_PATCH := 0
-VERSION_STRING := $(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_PATCH)
+# Version Configuration (from git tags)
+VERSION_STRING := $(shell git describe --tags --always 2>/dev/null || echo "null")
 
 # Compiler Configuration
 CXX := g++
@@ -55,20 +52,33 @@ DEPS := $(OBJS:.o=.d)
 EXTRAS := $(wildcard $(EXTRASDIR)/*.sh)
 EXTRAS_BASENAMES := $(notdir $(EXTRAS))
 
+# Generated Files
+VERSION_FILE := $(SRCDIR)/version.hpp
+
 # =============================================================================
 # Build Targets
 # =============================================================================
 
-.PHONY: all clean install uninstall debug help install-extras uninstall-extras
+.PHONY: all clean install uninstall debug help install-extras uninstall-extras version-show version-bump
 
-all: $(TARGET)
+all: $(VERSION_FILE) $(TARGET)
+
+# Generate version.hpp from git
+$(VERSION_FILE):
+				@echo "Generating version.hpp from git tags..."
+				@mkdir -p $(SRCDIR)
+				@echo '#ifndef VERSION_HPP' > $@
+				@echo '#define VERSION_HPP' >> $@
+				@echo '#define HIGH_VERSION_STRING "$(VERSION_STRING)"' >> $@
+				@echo '#endif' >> $@
+				@echo "Version: $(VERSION_STRING)"
 
 $(TARGET): $(OBJS)
 				@echo "Building $(TARGET) v$(VERSION_STRING)..."
 				$(CXX) $(CXXFLAGS) $(OBJS) -o $@ $(LDFLAGS)
 				@echo "Build complete: $(TARGET) v$(VERSION_STRING)"
 
-%.o: %.cpp
+%.o: %.cpp $(VERSION_FILE)
 				$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 -include $(DEPS)
@@ -112,7 +122,7 @@ install-extras: $(EXTRAS)
 								echo "  Creating alias $$aliasname in $(BINDIR)..."; \
 								rm -f $(BINDIR)/$$aliasname; \
 								echo '#!/bin/bash' > $(BINDIR)/$$aliasname; \
-								echo "exec $(SHAREDIR)/$$fullname \"$$""@\"" >> $(BINDIR)/$$aliasname; \
+								echo "exec $(SHAREDIR)/$$fullname \"\$$@\"" >> $(BINDIR)/$$aliasname; \
 								chmod 755 $(BINDIR)/$$aliasname; \
 				done
 				@echo ""
@@ -127,7 +137,7 @@ install-extras: $(EXTRAS)
 				@echo "  high -r -s conversation | cb"
 				@echo ""
 				@echo "Add to ~/.bashrc or ~/.zshrc for convenience:"
-				@echo "  export PATH=$(BINDIR):$$PATH"
+				@echo "  export PATH=$(BINDIR):\$$PATH"
 
 uninstall-extras:
 				@echo "Removing extra utilities..."
@@ -146,7 +156,7 @@ uninstall-extras:
 # =============================================================================
 
 debug: CXXFLAGS := -std=c++20 -g -O0 -Wall -Wextra -pedantic -DDEBUG
-debug: clean $(TARGET)
+debug: clean all
 				@echo "Debug build complete"
 
 # =============================================================================
@@ -162,7 +172,7 @@ clean:
 
 distclean: clean
 				@echo "Removing all generated files..."
-				rm -f version.hpp
+				rm -f $(VERSION_FILE)
 				rm -rf debian/high debian/*.substvars 2>/dev/null || true
 				@echo "Distclean complete"
 
@@ -170,57 +180,9 @@ distclean: clean
 # Version Management
 # =============================================================================
 
-VERSION_FILE := version.hpp
-
 version-show:
 				@echo "Current version: $(VERSION_STRING)"
-
-version-bump-patch:
-				@eval PATCH=$$(( $(VERSION_PATCH) + 1 )); \
-				echo "Bumping patch: $(VERSION_STRING) -> $(VERSION_MAJOR).$(VERSION_MINOR).$$PATCH"; \
-				echo '#ifndef VERSION_HPP' > $(VERSION_FILE); \
-				echo '#define VERSION_HPP' >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_MAJOR $(VERSION_MAJOR)' >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_MINOR $(VERSION_MINOR)' >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_PATCH '$$PATCH >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_STRING "$(VERSION_MAJOR).$(VERSION_MINOR).$$PATCH"' >> $(VERSION_FILE); \
-				echo '#endif' >> $(VERSION_FILE)
-
-version-bump-minor:
-				@eval MINOR=$$(( $(VERSION_MINOR) + 1 )); \
-				echo "Bumping minor: $(VERSION_STRING) -> $(VERSION_MAJOR).$$MINOR.0"; \
-				echo '#ifndef VERSION_HPP' > $(VERSION_FILE); \
-				echo '#define VERSION_HPP' >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_MAJOR $(VERSION_MAJOR)' >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_MINOR '$$MINOR >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_PATCH 0' >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_STRING "$(VERSION_MAJOR).$$MINOR.0"' >> $(VERSION_FILE); \
-				echo '#endif' >> $(VERSION_FILE)
-
-version-bump-major:
-				@eval MAJOR=$$(( $(VERSION_MAJOR) + 1 )); \
-				echo "Bumping major: $(VERSION_STRING) -> $$MAJOR.0.0"; \
-				echo '#ifndef VERSION_HPP' > $(VERSION_FILE); \
-				echo '#define VERSION_HPP' >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_MAJOR '$$MAJOR >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_MINOR 0' >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_PATCH 0' >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_STRING "$$MAJOR.0.0"' >> $(VERSION_FILE); \
-				echo '#endif' >> $(VERSION_FILE)
-
-version-set:
-				@if [ -z "$(VER)" ]; then echo "Usage: make version-set VER=1.2.3"; exit 1; fi
-				@echo "Setting version to: $(VER)"
-				@MAJOR=$$(echo $(VER) | cut -d. -f1); \
-				MINOR=$$(echo $(VER) | cut -d. -f2); \
-				PATCH=$$(echo $(VER) | cut -d. -f3); \
-				echo '#ifndef VERSION_HPP' > $(VERSION_FILE); \
-				echo '#define VERSION_HPP' >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_MAJOR '$$MAJOR >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_MINOR '$$MINOR >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_PATCH '$$PATCH >> $(VERSION_FILE); \
-				echo '#define HIGH_VERSION_STRING "$(VER)"' >> $(VERSION_FILE); \
-				echo '#endif' >> $(VERSION_FILE)
+				@echo "Git tag: $$(git describe --tags --always --dirty 2>/dev/null || echo 'no tags')"
 
 # =============================================================================
 # Debian Packaging
@@ -302,11 +264,7 @@ help:
 				@echo "  make pre-publish  Pre-publish check"
 				@echo ""
 				@echo "Version Management:"
-				@echo "  make version-show       Show current version"
-				@echo "  make version-bump-patch Bump patch version"
-				@echo "  make version-bump-minor Bump minor version"
-				@echo "  make version-bump-major Bump major version"
-				@echo "  make version-set VER=X.Y.Z Set specific version"
+				@echo "  make version-show       Show current version (from git)"
 				@echo ""
 				@echo "Examples:"
 				@echo "  make CXX=clang++				      Build with clang"
@@ -316,5 +274,5 @@ help:
 
 .PHONY: all clean distclean install uninstall debug help
 .PHONY: install-extras uninstall-extras
-.PHONY: version-show version-bump-patch version-bump-minor version-bump-major version-set
+.PHONY: version-show version-bump
 .PHONY: deb-build deb-clean deb-check test verify pre-publish

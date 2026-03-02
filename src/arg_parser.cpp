@@ -112,14 +112,11 @@ private:
     }
     
     void show_version() {
-        std::cout << "high v" << HIGH_VERSION_STRING << "\n"
+        std::cout << "high (" << HIGH_VERSION_STRING << ")\n"
                   << "TUI LLM Chat Interface\n"
                   << "\n"
                   << "Build Information:\n"
                   << "  Version: " << HIGH_VERSION_STRING << "\n"
-                  << "  Major:   " << HIGH_VERSION_MAJOR << "\n"
-                  << "  Minor:   " << HIGH_VERSION_MINOR << "\n"
-                  << "  Patch:   " << HIGH_VERSION_PATCH << "\n"
                   << "\n"
                   << "License: GPLv3\n";
     }
