@@ -21,14 +21,6 @@ FormatContext::~FormatContext() {
     Logger::debug("[OF] FormatContext destroyed");
 }
 
-static bool is_likely_language(const std::string& str) {
-    if (str.empty() || str.size() > 20) return false;
-    for (char c : str) {
-        if (!isalnum(c) && c != '-' && c != '_' && c != '+') return false;
-    }
-    return true;
-}
-
 static std::string debug_ansi(const std::string& s) {
     std::string result;
     for (char c : s) {

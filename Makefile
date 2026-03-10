@@ -77,7 +77,7 @@ version-renew:
 				@echo "version.hpp regenerated: $(VERSION_STRING)"
 
 $(TARGET): $(VERSION_FILE) $(OBJS)
-				@echo "Building $(TARGET) v$(VERSION_STRING)..."
+				@echo "Building $(TARGET) ($(VERSION_STRING))..."
 				$(CXX) $(CXXFLAGS) $(OBJS) -o $@ $(LDFLAGS)
 
 %.o: %.cpp
