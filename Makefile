@@ -63,12 +63,13 @@ VERSION_FILE := $(SRCDIR)/version.hpp
 all: $(TARGET)
 
 # Generate version.hpp from git - THIS IS A TARGET, WILL AUTO-RUN IF MISSING
-$(VERSION_FILE):
+$(VERSION_FILE): .FORCE
 				@mkdir -p $(SRCDIR)
 				@echo '#ifndef VERSION_HPP' > $@
 				@echo '#define VERSION_HPP' >> $@
 				@echo '#define HIGH_VERSION_STRING "$(VERSION_STRING)"' >> $@
 				@echo '#endif' >> $@
+.FORCE:
 
 # Force regenerate version.hpp from current git tag
 version-renew:
@@ -93,7 +94,7 @@ MANDIR := $(DESTDIR)$(PREFIX)/share/man
 MAN1DIR := $(MANDIR)/man1
 
 install: $(TARGET)
-				@echo "Installing $(TARGET) v$(VERSION_STRING) to $(BINDIR)..."
+				@echo "Installing $(TARGET) ($(VERSION_STRING)) to $(BINDIR)..."
 				install -d $(BINDIR)
 				install -m 755 $(TARGET) $(BINDIR)
 				@echo "Installing manpage to $(MAN1DIR)..."
