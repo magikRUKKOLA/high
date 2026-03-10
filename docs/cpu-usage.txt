@@ -1,0 +1,68 @@
+lscpu | grep 'Model name'
+> Model name:                              AMD Ryzen 9 5900HX with Radeon Graphics
+
+===
+
+time high -m Qwen3.5 -f -p "can you write a eloquent chess program in c with ai for tui?"
+
+> ## Features
+> 
+> 1. Complete Chess Rules: All piece movements, castling, en passant, pawn promotion
+> 2. AI Opponent: Minimax algorithm with alpha-beta pruning
+> 3. TUI Display: Color-coded board with ANSI escape codes
+> 4. Move Validation: Full move legality checking
+> 5. Position Evaluation: Material + positional bonuses
+> 
+> ## Customization
+> 
+> - AI Strength: Change ai_depth in main() (2-4 recommended)
+> - Play as Black: Swap the turn logic in the game loop
+> - Evaluation: Modify evaluate_position() for different strategies
+> 
+> ## Notes
+> 
+> - Works on Linux/Mac terminals with ANSI support
+> - For Windows, use a terminal like Windows Terminal or WSL
+> - AI depth 3 = fast, depth 4 = stronger but slower
+> 
+> This is a complete, playable chess program! Would you like me to add any specific features like move history, better evaluation, or opening book?
+> [Conversation: conv_1773145233356]
+
+real	2m12.976s
+user	0m0.488s
+sys	0m0.532s
+
+===
+
+time mods -m Qwen3.5-397B-A17B-IQ3_S "can you write a eloquent chess program in c with ai for tui?"
+
+>   ## Features                                                                 
+>                                                                               
+>   1. Complete Chess Rules: All piece movements, castling, en passant, pawn    
+>   promotion                                                                   
+>   2. AI Opponent: Minimax algorithm with alpha-beta pruning                   
+>   3. TUI Display: Color-coded board with ANSI escape codes                    
+>   4. Move Validation: Full move legality checking                             
+>   5. Position Evaluation: Material + positional bonuses                       
+>                                                                               
+>   ## Customization                                                            
+>                                                                               
+>   • AI Strength: Change  ai_depth  in main() (2-4 recommended)                
+>   • Play as Black: Swap the turn logic in the game loop                       
+>   • Evaluation: Modify  evaluate_position()  for different strategies         
+>                                                                               
+>   ## Notes                                                                    
+>                                                                               
+>   • Works on Linux/Mac terminals with ANSI support                            
+>   • For Windows, use a terminal like Windows Terminal or WSL                  
+>   • AI depth 3 = fast, depth 4 = stronger but slower                          
+>                                                                               
+>   This is a complete, playable chess program! Would you like me to add any    
+>   specific features like move history, better evaluation, or opening book?    
+> 
+> Conversation saved:  63ffdff  can you write a eloquent chess program in c with ai for tui?
+
+real	3m3.809s
+user	3m12.368s
+sys	0m21.996s
+
