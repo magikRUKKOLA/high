@@ -8,44 +8,269 @@
 #include <memory>
 #include <cstdio>
 #include <sstream>
-#include <iomanip>
+#include <fstream>
+#include <unordered_map>
+#include <filesystem>
 
 std::unordered_set<std::string> CodeBlockParser::supported_languages;
+std::unordered_map<std::string, std::string> CodeBlockParser::extension_to_lang;
 
-void CodeBlockParser::load_supported_languages() {
-    const char* cmd = "highlight --list-scripts=langs | grep -F ':' | cut -d':' -f2 | grep -vE '^$' | cut -c2- | sed 's/[(|)]//g' | tr ' ' '\n' | grep -vE '^$'";
+static bool g_filetypes_loaded = false;
 
-    std::array<char, 128> buffer;
-    UniqueFILE pipe(popen(cmd, "r"));
+// Helper to convert string to lowercase
+static std::string to_lower(const std::string& str) {
+    std::string result = str;
+    std::transform(result.begin(), result.end(), result.begin(), 
+                   [](unsigned char c) { return std::tolower(c); });
+    return result;
+}
 
-    if (!pipe) {
-        Logger::warn("Failed to load supported languages from highlight");
+// Extract quoted string from position, returns the string and advances pos
+static std::string extract_quoted_string(const std::string& str, size_t& pos) {
+    if (pos >= str.size()) return "";
+    
+    // Skip whitespace
+    while (pos < str.size() && std::isspace(str[pos])) pos++;
+    
+    if (pos >= str.size() || (str[pos] != '"' && str[pos] != '\'')) return "";
+    
+    char quote = str[pos];
+    pos++; // Skip opening quote
+    
+    size_t start = pos;
+    while (pos < str.size() && str[pos] != quote) {
+        pos++;
+    }
+    
+    std::string result = str.substr(start, pos - start);
+    if (pos < str.size()) pos++; // Skip closing quote
+    return result;
+}
+
+// Parse extensions array: {"ext1", "ext2", "ext3"}
+static std::vector<std::string> parse_extensions_array(const std::string& str) {
+    std::vector<std::string> result;
+    
+    size_t pos = str.find('{');
+    if (pos == std::string::npos) return result;
+    pos++;
+    
+    while (pos < str.size()) {
+        std::string ext = extract_quoted_string(str, pos);
+        if (ext.empty()) break;
+        result.push_back(ext);
+        
+        // Skip comma and whitespace
+        while (pos < str.size() && (std::isspace(str[pos]) || str[pos] == ',')) pos++;
+    }
+    
+    return result;
+}
+
+// Parse a single line like: { Lang="cpp", Extensions={"c++", "cpp", "cxx"} },
+static bool parse_entry_line(const std::string& line, 
+                             std::string& out_lang,
+                             std::vector<std::string>& out_extensions) {
+    // Find Lang=
+    size_t lang_pos = line.find("Lang=");
+    if (lang_pos == std::string::npos) return false;
+    
+    lang_pos += 5;
+    out_lang = extract_quoted_string(line, lang_pos);
+    
+    if (out_lang.empty()) {
+        Logger::debug("[CB] parse_entry_line: Failed to extract Lang from: %s", line.c_str());
+        return false;
+    }
+    
+    // Find Extensions=
+    size_t ext_pos = line.find("Extensions=");
+    if (ext_pos == std::string::npos) {
+        Logger::debug("[CB] parse_entry_line: No Extensions= found for Lang=%s", out_lang.c_str());
+        return false;
+    }
+    
+    ext_pos += 11;
+    out_extensions = parse_extensions_array(line.substr(ext_pos));
+    
+    if (out_extensions.empty()) {
+        Logger::debug("[CB] parse_entry_line: No extensions parsed for Lang=%s", out_lang.c_str());
+        return false;
+    }
+    
+    Logger::debug("[CB] parse_entry_line: Lang=%s, Extensions=%zu", out_lang.c_str(), out_extensions.size());
+    return true;
+}
+
+// Parse filetypes.conf file line by line
+static void parse_filetypes_conf(const std::string& filepath) {
+    Logger::debug("[CB] Parsing filetypes.conf: %s", filepath.c_str());
+    
+    std::ifstream file(filepath);
+    if (!file.is_open()) {
+        Logger::warn("[CB] Cannot open filetypes.conf: %s", filepath.c_str());
         return;
     }
-
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-        std::string lang(buffer.data());
-        lang.erase(std::remove_if(lang.begin(), lang.end(),
-            [](char c) { return c == '\n' || c == '\r'; }), lang.end());
-
-        if (!lang.empty()) {
-            std::transform(lang.begin(), lang.end(), lang.begin(), ::tolower);
-            supported_languages.insert(lang);
+    
+    std::string line;
+    int entry_count = 0;
+    bool in_filemapping = false;
+    
+    while (std::getline(file, line)) {
+        // Skip comments and empty lines
+        size_t start = line.find_first_not_of(" \t");
+        if (start == std::string::npos) continue;
+        
+        if (line[start] == '-' && line[start + 1] == '-') continue;
+        
+        // Check for FileMapping start
+        if (line.find("FileMapping") != std::string::npos && 
+            line.find('{') != std::string::npos) {
+            in_filemapping = true;
+            Logger::debug("[CB] Found FileMapping section");
+            continue;
+        }
+        
+        if (!in_filemapping) continue;
+        
+        // Check for end of FileMapping
+        if (line.find('}') != std::string::npos && 
+            line.find("Lang=") == std::string::npos) {
+            in_filemapping = false;
+            break;
+        }
+        
+        // Parse entry line
+        if (line.find("Lang=") != std::string::npos) {
+            std::string lang;
+            std::vector<std::string> extensions;
+            
+            if (parse_entry_line(line, lang, extensions)) {
+                std::string lower_lang = to_lower(lang);
+                CodeBlockParser::supported_languages.insert(lower_lang);
+                
+                for (const auto& ext : extensions) {
+                    std::string lower_ext = to_lower(ext);
+                    // First association wins (matches highlight CLI behavior)
+                    if (CodeBlockParser::extension_to_lang.find(lower_ext) == CodeBlockParser::extension_to_lang.end()) {
+                        CodeBlockParser::extension_to_lang[lower_ext] = lower_lang;
+                        Logger::debug("[CB] Mapped extension '%s' -> '%s'", 
+                                     lower_ext.c_str(), lower_lang.c_str());
+                    }
+                }
+                entry_count++;
+            }
         }
     }
+    
+    Logger::info("[CB] Parsed %d filetype entries from %s", entry_count, filepath.c_str());
+    Logger::info("[CB] Loaded %zu extension-to-language mappings", CodeBlockParser::extension_to_lang.size());
+}
 
-    Logger::info("Loaded %zu supported language abbreviations from highlight", supported_languages.size());
+void CodeBlockParser::load_filetype_mappings() {
+    if (g_filetypes_loaded) {
+        Logger::debug("[CB] Filetype mappings already loaded");
+        return;
+    }
+    
+    // Search paths for filetypes.conf
+    std::vector<std::string> search_paths = {
+        "/etc/highlight/filetypes.conf",
+        "/usr/share/highlight/filetypes.conf",
+        "/usr/local/share/highlight/filetypes.conf"
+    };
+    
+    // Add user config path
+    const char* home = std::getenv("HOME");
+    if (home) {
+        search_paths.push_back(std::string(home) + "/.highlight/filetypes.conf");
+    }
+    
+    // Find first existing file
+    std::string conf_path;
+    for (const auto& path : search_paths) {
+        if (std::filesystem::exists(path)) {
+            conf_path = path;
+            Logger::debug("[CB] Found filetypes.conf at: %s", path.c_str());
+            break;
+        }
+    }
+    
+    if (conf_path.empty()) {
+        Logger::warn("[CB] No filetypes.conf found in search paths");
+        g_filetypes_loaded = true;
+        return;
+    }
+    
+    parse_filetypes_conf(conf_path);
+    g_filetypes_loaded = true;
+}
+
+void CodeBlockParser::load_supported_languages() {
+    load_filetype_mappings();
+    
+    // Also load from highlight binary if available (for svg etc.)
+    //if (supported_languages.empty()) {
+        const char* cmd = "highlight --list-scripts=langs 2>/dev/null | grep -F ':' | cut -d':' -f2 | grep -vE '^$' | cut -c2- | sed 's/[(|)]//g' | tr ' ' '\\n' | grep -vE '^$'";
+
+        std::array<char, 128> buffer;
+        UniqueFILE pipe(popen(cmd, "r"));
+
+        if (!pipe) {
+            Logger::warn("[CB] Failed to load supported languages from highlight");
+            return;
+        }
+
+        while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+            std::string lang(buffer.data());
+            lang.erase(std::remove_if(lang.begin(), lang.end(),
+                [](char c) { return c == '\n' || c == '\r'; }), lang.end());
+
+            if (!lang.empty()) {
+                std::transform(lang.begin(), lang.end(), lang.begin(), ::tolower);
+                supported_languages.insert(lang);
+            }
+        }
+
+        Logger::info("[CB] Loaded %zu supported language abbreviations from highlight", 
+                    supported_languages.size());
+    //}
+}
+
+std::string CodeBlockParser::resolve_language_from_extension(const std::string& ext) {
+    if (ext.empty()) return "";
+    
+    std::string lower_ext = to_lower(ext);
+    
+    auto it = extension_to_lang.find(lower_ext);
+    if (it != extension_to_lang.end()) {
+        return it->second;
+    }
+    
+    return "";
 }
 
 bool CodeBlockParser::is_language_supported(const std::string& lang) {
     if (lang.empty()) return false;
-    std::string lower_lang = lang;
-    std::transform(lower_lang.begin(), lower_lang.end(), lower_lang.begin(), ::tolower);
-    return supported_languages.find(lower_lang) != supported_languages.end();
+    
+    std::string lower_lang = to_lower(lang);
+    
+    if (supported_languages.find(lower_lang) != supported_languages.end()) {
+        return true;
+    }
+    
+    if (!extension_to_lang.empty()) {
+        auto it = extension_to_lang.find(lower_lang);
+        if (it != extension_to_lang.end()) {
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 bool CodeBlockParser::is_valid_fence_language_char(char c) {
-    return std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '+';
+    return std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '+' || c == '.';
 }
 
 std::string CodeBlockParser::extract_language_from_fence(const std::string& line_after_fence) {
@@ -62,7 +287,16 @@ std::string CodeBlockParser::extract_language_from_fence(const std::string& line
     }
 
     if (end > start) {
-        return line_after_fence.substr(start, end - start);
+        std::string lang = line_after_fence.substr(start, end - start);
+        
+        std::string resolved = resolve_language_from_extension(lang);
+        if (!resolved.empty()) {
+            Logger::debug("[CB] Resolved extension '%s' to language '%s'", 
+                         lang.c_str(), resolved.c_str());
+            return resolved;
+        }
+        
+        return lang;
     }
     return "";
 }
@@ -193,7 +427,8 @@ CodeBlockParser::ParseResult CodeBlockParser::parse_next(
                     is_language_supported(potential_lang) &&
                     is_newline_or_end) {
                     
-                    Logger::debug("[CB] NESTED codeblock detected: lang='%s'", potential_lang.c_str());
+                    Logger::debug("[CB] NESTED codeblock detected: lang='%s'", 
+                                 potential_lang.c_str());
                     
                     size_t newline_pos = data.find('\n', check_pos);
                     if (newline_pos == std::string::npos && !is_final) {
@@ -211,7 +446,8 @@ CodeBlockParser::ParseResult CodeBlockParser::parse_next(
                     result.type = ParseResult::CLOSE_FENCE;
                     result.advance_by = advance;
                     result.language = potential_lang;
-                    Logger::debug("[CB] NESTED: closing current, new lang='%s'", potential_lang.c_str());
+                    Logger::debug("[CB] NESTED: closing current, new lang='%s'", 
+                                 potential_lang.c_str());
                     return result;
                 }
                 else if (indent == current_state.fence_indent && is_newline_or_end) {

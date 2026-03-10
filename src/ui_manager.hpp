@@ -7,7 +7,15 @@
 
 class UIManager {
 public:
-    static std::string select_conversation_interactive(const std::vector<ConversationManager::ConversationInfo>& conv_infos);
+    // NEW: Interactive selection with pagination support
+    static std::string select_conversation_interactive(
+        const std::vector<ConversationManager::ConversationInfo>& conv_infos,
+        size_t total_count,
+        size_t current_page,
+        size_t page_size,
+        bool& page_changed,
+        size_t& new_page);
+    
     static bool prompt_save_interrupted();
 };
 

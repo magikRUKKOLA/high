@@ -4,12 +4,12 @@
 # Build:     make
 # Debug:     make debug
 # Install:   sudo make install
-# Extras:    sudo make install-extras
 # Clean:     make clean
+# Version:   git tag -a <tagname> -m "message" && make version-renew
 # =============================================================================
 
-# Version Configuration (from git tags)
-VERSION_STRING := $(shell git describe --tags --always 2>/dev/null || echo "null")
+# Version Configuration (from git tags ONLY)
+VERSION_STRING := $(shell git describe --tags --always 2>/dev/null || echo "untagged")
 
 # Compiler Configuration
 CXX := g++
@@ -50,7 +50,6 @@ DEPS := $(OBJS:.o=.d)
 
 # Extra Scripts
 EXTRAS := $(wildcard $(EXTRASDIR)/*.sh)
-EXTRAS_BASENAMES := $(notdir $(EXTRAS))
 
 # Generated Files
 VERSION_FILE := $(SRCDIR)/version.hpp
@@ -59,26 +58,29 @@ VERSION_FILE := $(SRCDIR)/version.hpp
 # Build Targets
 # =============================================================================
 
-.PHONY: all clean install uninstall debug help install-extras uninstall-extras version-show version-bump
+.PHONY: all clean install uninstall debug help version-renew version-show install-extras uninstall-extras
 
-all: $(VERSION_FILE) $(TARGET)
+all: $(TARGET)
 
-# Generate version.hpp from git
+# Generate version.hpp from git - THIS IS A TARGET, WILL AUTO-RUN IF MISSING
 $(VERSION_FILE):
-				@echo "Generating version.hpp from git tags..."
 				@mkdir -p $(SRCDIR)
 				@echo '#ifndef VERSION_HPP' > $@
 				@echo '#define VERSION_HPP' >> $@
 				@echo '#define HIGH_VERSION_STRING "$(VERSION_STRING)"' >> $@
 				@echo '#endif' >> $@
-				@echo "Version: $(VERSION_STRING)"
 
-$(TARGET): $(OBJS)
+# Force regenerate version.hpp from current git tag
+version-renew:
+				@rm -f $(VERSION_FILE)
+				@$(MAKE) --no-print-directory $(VERSION_FILE)
+				@echo "version.hpp regenerated: $(VERSION_STRING)"
+
+$(TARGET): $(VERSION_FILE) $(OBJS)
 				@echo "Building $(TARGET) v$(VERSION_STRING)..."
 				$(CXX) $(CXXFLAGS) $(OBJS) -o $@ $(LDFLAGS)
-				@echo "Build complete: $(TARGET) v$(VERSION_STRING)"
 
-%.o: %.cpp $(VERSION_FILE)
+%.o: %.cpp
 				$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 -include $(DEPS)
@@ -111,7 +113,6 @@ uninstall:
 
 install-extras: $(EXTRAS)
 				@echo "Installing extra utilities..."
-				@echo "Installing scripts to $(SHAREDIR)..."
 				install -d $(SHAREDIR)
 				install -d $(BINDIR)
 				@for script in $(EXTRAS); do \
@@ -119,34 +120,19 @@ install-extras: $(EXTRAS)
 								aliasname=$${fullname%.sh}; \
 								echo "  Installing $$fullname..."; \
 								install -m 755 $$script $(SHAREDIR)/$$fullname; \
-								echo "  Creating alias $$aliasname in $(BINDIR)..."; \
+								echo "  Creating alias $$aliasname..."; \
 								rm -f $(BINDIR)/$$aliasname; \
 								echo '#!/bin/bash' > $(BINDIR)/$$aliasname; \
 								echo "exec $(SHAREDIR)/$$fullname \"\$$@\"" >> $(BINDIR)/$$aliasname; \
 								chmod 755 $(BINDIR)/$$aliasname; \
 				done
-				@echo ""
-				@echo "Extra utilities installed successfully!"
-				@echo ""
-				@echo "Available commands:"
-				@echo "  pre   - File context provider for LLM prompts"
-				@echo "  cb    - Interactive codeblock extractor"
-				@echo ""
-				@echo "Usage examples:"
-				@echo "  pre src/*.cpp | high 'Review this code'"
-				@echo "  high -r -s conversation | cb"
-				@echo ""
-				@echo "Add to ~/.bashrc or ~/.zshrc for convenience:"
-				@echo "  export PATH=$(BINDIR):\$$PATH"
+				@echo "Extra utilities installed!"
 
 uninstall-extras:
-				@echo "Removing extra utilities..."
 				@for script in $(EXTRAS); do \
 								fullname=$$(basename $$script); \
 								aliasname=$${fullname%.sh}; \
-								echo "  Removing $$aliasname..."; \
 								rm -f $(BINDIR)/$$aliasname; \
-								echo "  Removing $$fullname..."; \
 								rm -f $(SHAREDIR)/$$fullname; \
 				done
 				@echo "Extra utilities removed!"
@@ -157,7 +143,6 @@ uninstall-extras:
 
 debug: CXXFLAGS := -std=c++20 -g -O0 -Wall -Wextra -pedantic -DDEBUG
 debug: clean all
-				@echo "Debug build complete"
 
 # =============================================================================
 # Cleanup
@@ -168,21 +153,23 @@ clean:
 				rm -f $(TARGET) $(OBJS) $(DEPS)
 				rm -f *.o *.d
 				rm -f $(SRCDIR)/*.o $(SRCDIR)/*.d 2>/dev/null || true
-				@echo "Clean complete"
 
 distclean: clean
 				@echo "Removing all generated files..."
 				rm -f $(VERSION_FILE)
 				rm -rf debian/high debian/*.substvars 2>/dev/null || true
-				@echo "Distclean complete"
 
 # =============================================================================
 # Version Management
 # =============================================================================
 
 version-show:
-				@echo "Current version: $(VERSION_STRING)"
-				@echo "Git tag: $$(git describe --tags --always --dirty 2>/dev/null || echo 'no tags')"
+				@echo "Git version: $(VERSION_STRING)"
+				@if [ -f $(VERSION_FILE) ]; then \
+								cat $(VERSION_FILE); \
+				else \
+								echo "version.hpp will be generated on build"; \
+				fi
 
 # =============================================================================
 # Debian Packaging
@@ -193,13 +180,11 @@ version-show:
 deb-build:
 				@echo "Building Debian package..."
 				debuild -us -uc -b
-				@echo "Package built: ../high_*.deb"
 
 deb-clean:
 				@echo "Cleaning Debian build artifacts..."
 				rm -rf debian/high debian/*.substvars
 				rm -f ../high_*.deb ../high_*.dsc ../high_*.changes ../high_*.buildinfo
-				@echo "Clean complete"
 
 deb-check:
 				@echo "=== Debian Package Check ==="
@@ -208,7 +193,7 @@ deb-check:
 				@test -f debian/changelog && echo "✓ debian/changelog exists" || echo "✗ debian/changelog missing"
 
 # =============================================================================
-# Verification (CI Simulation)
+# Verification
 # =============================================================================
 
 .PHONY: test verify pre-publish
@@ -230,8 +215,8 @@ verify:
 
 pre-publish: verify
 				@echo "=== Pre-Publish Check ==="
-				@echo "✓ Build verified"
-				@echo "✓ Package structure verified"
+				@echo "Build verified"
+				@echo "Package structure verified"
 				@echo "Project ready for publishing!"
 
 # =============================================================================
@@ -242,16 +227,20 @@ help:
 				@echo "high Makefile - Version $(VERSION_STRING)"
 				@echo ""
 				@echo "Build Targets:"
-				@echo "  make				      Build release version"
-				@echo "  make debug				Build with debug symbols"
-				@echo "  make clean				Remove build artifacts"
-				@echo "  make distclean    Remove all generated files"
+				@echo "  make				    Build release version"
+				@echo "  make debug      Build with debug symbols"
+				@echo "  make clean      Remove build artifacts"
+				@echo "  make distclean  Remove all generated files"
 				@echo ""
 				@echo "Installation:"
 				@echo "  make install      Install to $(PREFIX)/bin"
 				@echo "  make uninstall    Remove from system"
-				@echo "  make install-extras  Install extra utilities (pre, cb)"
+				@echo "  make install-extras   Install extra utilities"
 				@echo "  make uninstall-extras Remove extra utilities"
+				@echo ""
+				@echo "Version:"
+				@echo "  make version-show   Show current version"
+				@echo "  make version-renew  Regenerate version.hpp from git"
 				@echo ""
 				@echo "Debian Packaging:"
 				@echo "  make deb-build    Build Debian package"
@@ -262,17 +251,8 @@ help:
 				@echo "  make test				 Run build tests"
 				@echo "  make verify       Full verification"
 				@echo "  make pre-publish  Pre-publish check"
-				@echo ""
-				@echo "Version Management:"
-				@echo "  make version-show       Show current version (from git)"
-				@echo ""
-				@echo "Examples:"
-				@echo "  make CXX=clang++				      Build with clang"
-				@echo "  make DESTDIR=/tmp/pkg install Stage for packaging"
-				@echo "  make pre-publish				      Before releasing"
-				@echo "  sudo make install-extras      Install pre and cb utilities"
 
 .PHONY: all clean distclean install uninstall debug help
 .PHONY: install-extras uninstall-extras
-.PHONY: version-show version-bump
+.PHONY: version-show version-renew
 .PHONY: deb-build deb-clean deb-check test verify pre-publish

@@ -38,7 +38,17 @@ struct TermiosGuard {
     }
 };
 
-std::string UIManager::select_conversation_interactive(const std::vector<ConversationManager::ConversationInfo>& conv_infos) {
+std::string UIManager::select_conversation_interactive(
+    const std::vector<ConversationManager::ConversationInfo>& conv_infos,
+    size_t total_count,
+    size_t current_page,
+    size_t page_size,
+    bool& page_changed,
+    size_t& new_page) {
+    
+    page_changed = false;
+    new_page = current_page;
+    
     if (conv_infos.empty() || !is_terminal_output()) return "";
 
     TermiosGuard term_guard;
@@ -52,7 +62,7 @@ std::string UIManager::select_conversation_interactive(const std::vector<Convers
 
     hide_cursor();
 
-    const size_t HEADER_LINES = 3;
+    const size_t HEADER_LINES = 4;
     const size_t FOOTER_LINES = 2;
     const size_t RESERVED_LINES = HEADER_LINES + FOOTER_LINES;
 
@@ -61,42 +71,45 @@ std::string UIManager::select_conversation_interactive(const std::vector<Convers
     
     Logger::debug("[UI] Terminal: %zux%zu", term_width, term_height);
     
-    size_t page_size = (term_height > RESERVED_LINES) ? (term_height - RESERVED_LINES) : 10;
-    if (page_size < 5) page_size = 5;
+    size_t display_lines = (term_height > RESERVED_LINES) ? 
+                           (term_height - RESERVED_LINES) : 10;
+    if (display_lines < 7) display_lines = 7;
 
     const size_t METADATA_WIDTH = 60;
-    size_t max_title_width = (term_width > METADATA_WIDTH) ? (term_width - METADATA_WIDTH) : 20;
+    size_t max_title_width = (term_width > METADATA_WIDTH) ? 
+                             (term_width - METADATA_WIDTH) : 20;
     if (max_title_width < 10) max_title_width = 10;
 
     Logger::debug("[UI] Max title width: %zu", max_title_width);
 
     size_t selected = 0;
-    size_t start_idx = 0;
 
-    auto render_menu = [&](size_t start_idx, size_t selected_idx) {
+    auto render_menu = [&](size_t selected_idx) {
         clear_screen();
         
         std::cout << "\033[1m=== Select Conversation ===\033[22m\n";
-        std::cout << "\033[2m(arrows/PageUp/PageDown navigate, Enter selects, q quits)\033[22m\n\n";
+        std::cout << "\033[2m(arrows/PageUp/PageDown navigate, Enter selects, q quits)\033[22m\n";
+        std::cout << "\033[2m(Total: " << total_count << " conversations)\033[22m\n\n";
 
-        size_t end_idx = std::min(start_idx + page_size, conv_infos.size());
         size_t actual_lines_rendered = 0;
         
-        for (size_t i = start_idx; i < end_idx; ++i) {
+        for (size_t i = 0; i < conv_infos.size(); ++i) {
             const auto& info = conv_infos[i];
             auto time_t = std::chrono::system_clock::to_time_t(info.timestamp);
             
-            // Expand tabs in title just in case (though titles shouldn't have tabs)
             std::string safe_title = expand_tabs(info.title);
             std::string trimmed_title = trim_to_width(safe_title, max_title_width);
             
             char index_buf[24];
-            snprintf(index_buf, sizeof(index_buf), "%3zu.", i + 1);
+            snprintf(index_buf, sizeof(index_buf), "%3zu.", 
+                    current_page * page_size + i + 1);
             
             char date_buf[32];
-            strftime(date_buf, sizeof(date_buf), "(%Y-%m-%d %H:%M)", std::localtime(&time_t));
+            strftime(date_buf, sizeof(date_buf), "(%Y-%m-%d %H:%M)", 
+                    std::localtime(&time_t));
             
-            std::string model_str = info.model.empty() ? "" : std::string("[") + info.model + "]";
+            std::string model_str = info.model.empty() ? "" : 
+                                    std::string("[") + info.model + "]";
             std::string interrupted_str = info.interrupted ? "[Interrupted]" : "";
             
             std::string line;
@@ -122,7 +135,8 @@ std::string UIManager::select_conversation_interactive(const std::vector<Convers
             if (line_display_width > term_width) {
                 size_t excess = line_display_width - term_width;
                 if (trimmed_title.size() > excess + 3) {
-                    trimmed_title = trim_to_width(safe_title, max_title_width - excess - 5);
+                    trimmed_title = trim_to_width(safe_title, 
+                                                  max_title_width - excess - 5);
                     
                     line.clear();
                     line += index_buf;
@@ -145,7 +159,7 @@ std::string UIManager::select_conversation_interactive(const std::vector<Convers
             
             size_t line_count = calculate_line_count(line, term_width);
             
-            if (actual_lines_rendered + line_count > page_size) {
+            if (actual_lines_rendered + line_count > display_lines) {
                 break;
             }
             
@@ -159,23 +173,25 @@ std::string UIManager::select_conversation_interactive(const std::vector<Convers
             actual_lines_rendered += line_count;
         }
 
-        size_t remaining = page_size - actual_lines_rendered;
+        size_t remaining = display_lines - actual_lines_rendered;
         for (size_t j = 0; j < remaining && j < 2; ++j) {
             std::cout << "\n";
         }
 
-        if (conv_infos.size() > page_size) {
-            std::cout << "\033[2m(" << (start_idx + 1) << "-" << end_idx << " of " 
-                      << conv_infos.size() << ")\033[22m\n";
-        } else {
-            std::cout << "\n";
+        size_t total_pages = (total_count + page_size - 1) / page_size;
+        std::cout << "\033[2m(Page " << (current_page + 1) << " of " 
+                  << total_pages << ")";
+        
+        if (total_pages > 1) {
+            std::cout << " [n=next, p=prev]";
         }
+        std::cout << "\033[22m\n";
         
         std::cout << "> ";
         std::cout << std::flush;
     };
 
-    render_menu(start_idx, selected);
+    render_menu(selected);
 
     std::string selected_title;
     bool running = true;
@@ -218,29 +234,19 @@ std::string UIManager::select_conversation_interactive(const std::vector<Convers
                 if (seq[1] == 'A') {
                     if (selected > 0) {
                         selected--;
-                        if (selected < start_idx) start_idx = selected;
-                        render_menu(start_idx, selected);
+                        render_menu(selected);
                     }
                 } else if (seq[1] == 'B') {
                     if (selected + 1 < conv_infos.size()) {
                         selected++;
-                        if (selected >= start_idx + page_size) {
-                            start_idx = selected - page_size + 1;
-                        }
-                        render_menu(start_idx, selected);
+                        render_menu(selected);
                     }
                 } else if (seq[1] == 'H') {
-                    start_idx = 0;
                     selected = 0;
-                    render_menu(start_idx, selected);
+                    render_menu(selected);
                 } else if (seq[1] == 'F') {
-                    if (conv_infos.size() > page_size) {
-                        start_idx = conv_infos.size() - page_size;
-                    } else {
-                        start_idx = 0;
-                    }
                     selected = conv_infos.size() - 1;
-                    render_menu(start_idx, selected);
+                    render_menu(selected);
                 } else if (seq[1] >= '0' && seq[1] <= '9') {
                     std::string param_seq;
                     param_seq += seq[1];
@@ -268,53 +274,32 @@ std::string UIManager::select_conversation_interactive(const std::vector<Convers
                         }
                     }
 
-                    if (param_seq == "5~") {
-                        if (start_idx > 0) {
-                            if (start_idx >= page_size) {
-                                start_idx -= page_size;
-                            } else {
-                                start_idx = 0;
-                            }
-                            if (selected >= start_idx + page_size) {
-                                selected = start_idx + page_size - 1;
-                            }
-                            render_menu(start_idx, selected);
-                        }
-                    } else if (param_seq == "6~") {
-                        size_t max_start = (conv_infos.size() > page_size) ? 
-                                          (conv_infos.size() - page_size) : 0;
-                        if (start_idx < max_start) {
-                            start_idx = std::min(max_start, start_idx + page_size);
-                            if (selected < start_idx) selected = start_idx;
-                            render_menu(start_idx, selected);
+                    if (param_seq == "5~") {  // Page Up
+                        page_changed = true;
+                        new_page = (current_page > 0) ? (current_page - 1) : 0;
+                        running = false;
+                    } else if (param_seq == "6~") {  // Page Down
+                        size_t total_pages = (total_count + page_size - 1) / page_size;
+                        if (current_page + 1 < total_pages) {
+                            page_changed = true;
+                            new_page = current_page + 1;
+                            running = false;
                         }
                     } else if (param_seq == "1~" || param_seq == "1;5A") {
-                        start_idx = 0;
                         selected = 0;
-                        render_menu(start_idx, selected);
+                        render_menu(selected);
                     } else if (param_seq == "4~" || param_seq == "1;5B") {
-                        if (conv_infos.size() > page_size) {
-                            start_idx = conv_infos.size() - page_size;
-                        } else {
-                            start_idx = 0;
-                        }
                         selected = conv_infos.size() - 1;
-                        render_menu(start_idx, selected);
+                        render_menu(selected);
                     }
                 }
             } else if (seq_len >= 2 && seq[0] == 'O') {
                 if (seq[1] == 'H') {
-                    start_idx = 0;
                     selected = 0;
-                    render_menu(start_idx, selected);
+                    render_menu(selected);
                 } else if (seq[1] == 'F') {
-                    if (conv_infos.size() > page_size) {
-                        start_idx = conv_infos.size() - page_size;
-                    } else {
-                        start_idx = 0;
-                    }
                     selected = conv_infos.size() - 1;
-                    render_menu(start_idx, selected);
+                    render_menu(selected);
                 }
             }
         } else if (ch == '\n' || ch == '\r') {
@@ -325,30 +310,33 @@ std::string UIManager::select_conversation_interactive(const std::vector<Convers
         } else if (ch == 'j' || ch == 'J') {
             if (selected + 1 < conv_infos.size()) {
                 selected++;
-                if (selected >= start_idx + page_size) {
-                    start_idx = selected - page_size + 1;
-                }
-                render_menu(start_idx, selected);
+                render_menu(selected);
             }
         } else if (ch == 'k' || ch == 'K') {
             if (selected > 0) {
                 selected--;
-                if (selected < start_idx) start_idx = selected;
-                render_menu(start_idx, selected);
+                render_menu(selected);
             }
         } else if (ch == 'g' || ch == 'G') {
             if (ch == 'g') {
-                start_idx = 0;
                 selected = 0;
             } else {
-                if (conv_infos.size() > page_size) {
-                    start_idx = conv_infos.size() - page_size;
-                } else {
-                    start_idx = 0;
-                }
                 selected = conv_infos.size() - 1;
             }
-            render_menu(start_idx, selected);
+            render_menu(selected);
+        } else if (ch == 'n' || ch == 'N') {  // Next page
+            size_t total_pages = (total_count + page_size - 1) / page_size;
+            if (current_page + 1 < total_pages) {
+                page_changed = true;
+                new_page = current_page + 1;
+                running = false;
+            }
+        } else if (ch == 'p' || ch == 'P') {  // Previous page
+            if (current_page > 0) {
+                page_changed = true;
+                new_page = current_page - 1;
+                running = false;
+            }
         }
     }
 
@@ -406,7 +394,8 @@ bool UIManager::prompt_save_interrupted() {
         }
 
         if (ret > 0) {
-            if (!(fds[0].revents & POLLIN) && (fds[0].revents & (POLLHUP | POLLERR))) {
+            if (!(fds[0].revents & POLLIN) && 
+                (fds[0].revents & (POLLHUP | POLLERR))) {
                 Logger::error("[UI] Poll hangup/error");
                 break;
             }
@@ -419,7 +408,8 @@ bool UIManager::prompt_save_interrupted() {
                         if (buf_idx == 0) {
                             save = true;
                         } else {
-                            save = (response_buf[0] == 'y' || response_buf[0] == 'Y');
+                            save = (response_buf[0] == 'y' || 
+                                   response_buf[0] == 'Y');
                         }
                         decision_made = true;
                     } else if (ch == '\033') {

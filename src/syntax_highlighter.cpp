@@ -42,7 +42,7 @@ std::string SyntaxHighlighter::StreamingHighlighter::apply_simple_ansi(const std
     while (i < text.size()) {
         bool matched = false;
 
-        // bold
+        // bold **text**
         if (i + 4 <= text.size() && text[i] == '*' && text[i + 1] == '*') {
             if (i + 2 < text.size() && !std::isspace(text[i + 2])) {
                 size_t start = i + 2;
@@ -58,7 +58,7 @@ std::string SyntaxHighlighter::StreamingHighlighter::apply_simple_ansi(const std
             }
         }
 
-        // italic
+        // italic *text*
         if (!matched && i + 2 <= text.size() && text[i] == '*') {
             if (i + 1 >= text.size() || text[i + 1] != '*') {
                 if (i + 1 < text.size() && !std::isspace(text[i + 1])) {
@@ -76,7 +76,7 @@ std::string SyntaxHighlighter::StreamingHighlighter::apply_simple_ansi(const std
             }
         }
 
-        // quote/inverse
+        // inline code `text`
         if (!matched && text[i] == '`') {
             size_t backtick_count = 0;
             while (i < text.size() && text[i] == '`') {
@@ -117,6 +117,7 @@ std::string SyntaxHighlighter::StreamingHighlighter::apply_simple_ansi(const std
             }
         }
 
+        // strikethrough ~~text~~
         if (!matched && i + 4 <= text.size() && text[i] == '~' && text[i + 1] == '~') {
             size_t start = i + 2;
             size_t end = text.find("~~", start);
@@ -154,7 +155,6 @@ void SyntaxHighlighter::StreamingHighlighter::show_ghost(const std::string& text
     size_t term_width = ::get_terminal_width();
     if (term_width == 0) term_width = 80;
 
-    // FIX: Use calculate_display_width_no_ansi to properly handle ANSI codes
     size_t text_width = calculate_display_width_no_ansi(text);
     size_t lines_needed = (text_width + term_width - 1) / term_width;
     if (lines_needed == 0) lines_needed = 1;
@@ -170,18 +170,14 @@ void SyntaxHighlighter::StreamingHighlighter::show_ghost(const std::string& text
         
         Logger::debug("[Ghost] Optimized update: moving up %zu lines and overwriting", ghost_lines_);
         
-        // FIX: Move to beginning of line first, then up
         std::cout << "\r";
         if (ghost_lines_ > 1) {
             std::cout << "\033[" << (ghost_lines_ - 1) << "A";
         }
         
-        //// FIX: Clear the line before writing
-        //std::cout << "\033[K";
         std::cout << text << std::flush;
         
         ghost_lines_ = lines_needed;
-        // FIX: Store width without ANSI for residue calculation
         ghost_text_width_ = text_width;
         last_ghost_text_ = text;
         
@@ -196,15 +192,12 @@ void SyntaxHighlighter::StreamingHighlighter::show_ghost(const std::string& text
     Logger::debug("[Ghost] Displaying %zu lines of ghost text (%zu cols wide)",
                  lines_needed, text_width);
 
-    // FIX: Clear line before showing ghost text
-    //std::cout << "\r\033[K";
     std::cout << "\r";
     std::cout << text << std::flush;
 
     ghost_active_ = true;
     ghost_lines_ = lines_needed;
     last_term_width_ = term_width;
-    // FIX: Store width without ANSI for residue calculation
     ghost_text_width_ = text_width;
     last_ghost_text_ = text;
 
@@ -220,36 +213,10 @@ void SyntaxHighlighter::StreamingHighlighter::clear_ghost() {
 
     Logger::debug("[Ghost] Clearing %zu lines of ghost text", ghost_lines_);
 
-    //// FIX: Move to beginning of line first
-    //std::cout << "\r";
-    //if (ghost_lines_ > 1) {
-    //    std::cout << "\033[" << (ghost_lines_ - 1) << "A";
-    //}
-
-    //// Clear each line
-    //for (size_t i = 0; i < ghost_lines_; ++i) {
-    //    std::cout << "\033[K";
-    //    if (i < ghost_lines_ - 1) {
-    //        std::cout << "\n";
-    //    }
-    //}
-
-    //// FIX: Return to original position
-    //if (ghost_lines_ > 1) {
-    //    std::cout << "\033[" << (ghost_lines_ - 1) << "A";
-    //}
-    //std::cout << "\r";
-
     for (size_t i = 0; i < ghost_lines_ - 1; ++i) {
         std::cout << "\033[2K\033[1F";
     }
     std::cout << "\033[2K\r";
-
-    //if (ghost_lines_ > 1) {
-    //    std::cout << "\033[" << (ghost_lines_ - 1) << "F";
-    //} else {
-    //    std::cout << "\r";
-    //}
 
     std::cout << std::flush;
 
@@ -285,44 +252,20 @@ void SyntaxHighlighter::StreamingHighlighter::clear_residue(size_t rendered_widt
 
         std::cout << "\033[s";
 
-        //// Move N lines up
-        //if (ghost_lines > 1) {
-        //    std::cout << "\033[" << (ghost_lines - 1) << "F";
-        //}
-
-        //// Move down to last rendered line
-        //if (rendered_lines > 1) {
-        //    std::cout << "\033[" << (rendered_lines - 1) << "E";
-        //}
-
-        if ( ghost_lines - rendered_lines > 0 ) {
+        if (ghost_lines - rendered_lines > 0) {
             std::cout << "\033[" << (ghost_lines - rendered_lines) << "F";
         }
 
-        // Move to column after rendered text
         size_t rendered_final_col = rendered_width % term_width;
         std::cout << "\033[" << (rendered_final_col + 1) << "G";
-        
-        // Clear from cursor to end of line
         std::cout << "\033[K";
 
-        // Clear remaining lines if ghost had more lines
         if (ghost_lines > rendered_lines) {
             for (size_t i = rendered_lines; i < ghost_lines; ++i) {
                 std::cout << "\033[K";
                 if (i < ghost_lines - 1) std::cout << "\033[1E";
             }
         }
-
-        //// FIX: Return to original position
-        //if (ghost_lines > 1) {
-        //    std::cout << "\033[" << (ghost_lines - 1) << "F";
-        //}
-        //else { std::cout << "\r"; }
-        //if (rendered_lines > 1) {
-        //    std::cout << "\033[" << (rendered_lines - 1) << "E";
-        //}
-        //std::cout << "\033[" << (rendered_final_col + 1) << "G";
 
         std::cout << "\033[u";
 
@@ -499,7 +442,6 @@ std::string SyntaxHighlighter::StreamingHighlighter::feed(const std::string& cod
                     
                     clear_ghost();
                     
-                    // FIX: Calculate rendered width WITHOUT ANSI codes
                     size_t rendered_width = calculate_display_width_no_ansi(styled);
                     Logger::debug("[HL] Styled output: %zu bytes, rendered_width=%zu", styled.size(), rendered_width);
                     
@@ -664,7 +606,6 @@ std::string SyntaxHighlighter::StreamingHighlighter::feed(const std::string& cod
                         output_accumulator += "\n";
                     }
                     
-                    // FIX: Calculate rendered width WITHOUT ANSI codes
                     size_t rendered_width = calculate_display_width_no_ansi(processed);
                     clear_residue(rendered_width);
                 } else {
@@ -724,7 +665,6 @@ std::string SyntaxHighlighter::StreamingHighlighter::end() {
             if (preview_active_ && ghost_active_) {
                 std::lock_guard<std::recursive_mutex> term_lock(g_terminal_mutex);
                 
-                // FIX: Save ghost_text_width_ BEFORE clearing
                 size_t saved_ghost_width = ghost_text_width_;
                 
                 clear_ghost();
@@ -735,10 +675,8 @@ std::string SyntaxHighlighter::StreamingHighlighter::end() {
                     std::cout << "\n" << std::flush;
                 }
                 
-                // FIX: Clear residue using saved width
                 if (saved_ghost_width > 0) {
                     ghost_text_width_ = saved_ghost_width;
-                    // FIX: Calculate rendered width WITHOUT ANSI codes
                     clear_residue(calculate_display_width_no_ansi(final_output));
                 }
                 
@@ -861,7 +799,6 @@ std::string SyntaxHighlighter::StreamingHighlighter::end() {
         }
         
         if (!final_output.empty() && ghost_text_width_ > 0) {
-            // FIX: Calculate rendered width WITHOUT ANSI codes
             size_t rendered_width = calculate_display_width_no_ansi(final_output);
             Logger::debug("[HL] Final: rendered_width=%zu, ghost_text_width_=%zu", rendered_width, ghost_text_width_);
             clear_residue(rendered_width);
@@ -907,4 +844,45 @@ std::string SyntaxHighlighter::StreamingHighlighter::end() {
 
     Logger::debug("[HL] END complete, output=%zu bytes", final_output.size());
     return final_output;
+}
+
+size_t SyntaxHighlighter::StreamingHighlighter::get_terminal_width() {
+    return ::get_terminal_width();
+}
+
+void SyntaxHighlighter::StreamingHighlighter::reset() {
+    Logger::debug("[HL] RESET called");
+    
+    std::unique_lock<std::mutex> lock(mutex_);
+    
+    line_buffer_.clear();
+    ghost_active_ = false;
+    ghost_hash_ = 0;
+    ghost_lines_ = 0;
+    ghost_text_width_ = 0;
+    last_ghost_text_.clear();
+    highlight_dead_ = false;
+    
+    if (child_pid != -1) {
+        Logger::debug("[HL] Ending existing child process");
+        if (write_fd != -1) {
+            close(write_fd);
+            write_fd = -1;
+        }
+        if (read_fd != -1) {
+            close(read_fd);
+            read_fd = -1;
+        }
+        kill(child_pid, SIGKILL);
+        waitpid(child_pid, nullptr, 0);
+        child_pid = -1;
+    }
+    
+    // Restart with same lang/theme
+    if (!lang_.empty()) {
+        Logger::debug("[HL] Restarting highlighter with lang='%s', theme='%s'", 
+                     lang_.c_str(), theme_.c_str());
+        lock.unlock();
+        start(lang_, theme_);
+    }
 }

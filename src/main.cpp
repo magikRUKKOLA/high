@@ -40,21 +40,19 @@ static void handle_signal(int sig) {
     else if (sig == SIGTERM) { g_terminate.store(true); g_running.store(false); }
 }
 
-// FIX: Lazy load supported languages only when formatting is actually needed
 static void ensure_languages_loaded() {
     static std::atomic<bool> loaded{false};
     static std::mutex load_mutex;
-    
+
     if (loaded.load(std::memory_order_acquire)) return;
-    
+
     std::lock_guard<std::mutex> lock(load_mutex);
     if (loaded.load(std::memory_order_relaxed)) return;
-    
+
     CodeBlockParser::load_supported_languages();
     loaded.store(true, std::memory_order_release);
 }
 
-// FIX: Fast path to find last conversation without parsing all JSON metadata
 static std::string find_last_conversation_title() {
     const Config& config = Config::instance();
     std::string conv_dir = config.get_config_dir() + "/conversations";
@@ -64,7 +62,6 @@ static std::string find_last_conversation_title() {
     std::string last_title;
     auto last_time = std::filesystem::file_time_type::min();
     
-    // Only scan for most recent file, don't parse JSON
     for (const auto& entry : std::filesystem::directory_iterator(conv_dir)) {
         if (entry.path().extension() != ".json") continue;
         
@@ -82,7 +79,6 @@ static std::string find_last_conversation_title() {
     return last_title;
 }
 
-// Consolidated conversation display logic used by both list and show modes
 static int display_conversation(const std::string& title, const ConversationHistory& messages, 
                                 const std::string& model, const Args& args, bool interactive_mode) {
     if (messages.empty()) {
@@ -94,7 +90,6 @@ static int display_conversation(const std::string& title, const ConversationHist
     bool format_output = !args.no_format && !raw_json && Config::instance().format_markdown_enabled();
     bool simulate_streaming = Config::instance().preview_enabled();
 
-    // FIX: Load supported languages lazily only when formatting is enabled
     if (format_output || simulate_streaming) {
         ensure_languages_loaded();
     }
@@ -115,7 +110,6 @@ static int display_conversation(const std::string& title, const ConversationHist
                            (msg.role == "assistant") ? "Assistant" : "System";
         std::cout << "\n" << role << ":\n";
         
-        // Apply remove_think_tags filter for assistant messages
         std::string content = msg.content;
         if (args.remove_think_tags && msg.role == "assistant") {
             content = remove_think_tags(content);
@@ -150,10 +144,14 @@ static int display_conversation(const std::string& title, const ConversationHist
 }
 
 static int run_list_mode(const Args& args) {
-    // FIX: Load languages for list mode (needed for formatting)
     ensure_languages_loaded();
-    
-    auto conv_infos = ConversationManager::list_conversations_info();
+
+    size_t total_count = ConversationManager::count_conversations();
+
+    if (total_count == 0) {
+        std::cout << "No conversations found.\n";
+        return 0;
+    }
 
     bool raw_json = args.force_raw_json;
 
@@ -164,31 +162,96 @@ static int run_list_mode(const Args& args) {
             term_height = w.ws_row;
         }
     }
-    size_t pause_interval = (term_height > 2) ? (term_height - 2) : 20;
 
-    if (isatty(STDIN_FILENO) && isatty(STDOUT_FILENO) && args.prompt.empty() && !args.no_format && !raw_json) {
-        std::string selected = UIManager::select_conversation_interactive(conv_infos);
-        if (!selected.empty()) {
-            std::string conv_model;
-            const auto messages = ConversationManager::load_conversation(selected, conv_model);
-            return display_conversation(selected, messages, conv_model, args, true);
+    const size_t HEADER_LINES = 4;
+    const size_t FOOTER_LINES = 2;
+    const size_t RESERVED_LINES = HEADER_LINES + FOOTER_LINES;
+
+    size_t display_lines = (term_height > RESERVED_LINES) ?
+                           (term_height - RESERVED_LINES) : 10;
+    if (display_lines < 7) display_lines = 7;
+    if (display_lines > 50) display_lines = 50;
+
+    size_t page_size = display_lines;
+
+    if (isatty(STDIN_FILENO) && isatty(STDOUT_FILENO) &&
+        args.prompt.empty() && !args.no_format && !raw_json) {
+
+        size_t current_page = 0;
+        std::string selected;
+
+        while (true) {
+            auto page_result = ConversationManager::list_conversations_page(
+                current_page, page_size);
+
+            if (page_result.conversations.empty() && current_page > 0) {
+                if (current_page == 0) break;
+                current_page--;
+                continue;
+            }
+
+            bool page_changed = false;
+            size_t new_page = current_page;
+
+            selected = UIManager::select_conversation_interactive(
+                page_result.conversations,
+                page_result.total_count,
+                current_page,
+                page_size,
+                page_changed,
+                new_page);
+
+            if (page_changed) {
+                current_page = new_page;
+                continue;
+            }
+
+            if (!selected.empty()) {
+                std::string conv_model;
+                const auto messages = ConversationManager::load_conversation(
+                    selected, conv_model);
+                return display_conversation(selected, messages, conv_model,
+                                           args, true);
+            }
+
+            break;
         }
         return 0;
-    } else {
-        for (size_t i = 0; i < conv_infos.size(); ++i) {
-            const auto& info = conv_infos[i];
-            auto time_t = std::chrono::system_clock::to_time_t(info.timestamp);
-            std::cout << info.title << " (" 
-                      << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M") << ")";
-            if (!info.model.empty()) std::cout << " [" << info.model << "]";
-            if (info.interrupted) std::cout << " [Interrupted]";
-            std::cout << "\n";
+    }
+    else {
+        size_t pause_interval = (term_height > 2) ? (term_height - 2) : 20;
 
-            if (isatty(STDOUT_FILENO) && !args.no_format && !raw_json && 
-                (i + 1) % pause_interval == 0 && (i + 1) < conv_infos.size()) {
-                std::cout << "-- Press Enter to continue --" << std::flush;
-                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        for (size_t page = 0; ; ++page) {
+            auto page_result = ConversationManager::list_conversations_page(
+                page, page_size);
+
+            if (page_result.conversations.empty()) break;
+
+            for (size_t i = 0; i < page_result.conversations.size(); ++i) {
+                const auto& info = page_result.conversations[i];
+                size_t global_idx = page * page_size + i;
+
+                auto time_t = std::chrono::system_clock::to_time_t(
+                    info.timestamp);
+                std::cout << info.title << " ("
+                          << std::put_time(std::localtime(&time_t),
+                                          "%Y-%m-%d %H:%M") << ")";
+                if (!info.model.empty())
+                    std::cout << " [" << info.model << "]";
+                if (info.interrupted)
+                    std::cout << " [Interrupted]";
+                std::cout << "\n";
+
+                if (isatty(STDOUT_FILENO) && !args.no_format && !raw_json &&
+                    (global_idx + 1) % pause_interval == 0 &&
+                    (global_idx + 1) < total_count) {
+                    std::cout << "-- Press Enter to continue --" << std::flush;
+                    std::cin.ignore(std::numeric_limits<std::streamsize>::max(),
+                                   '\n');
+                }
             }
+
+            if (!page_result.has_more) break;
         }
         return 0;
     }
@@ -308,7 +371,6 @@ static int run_chat_mode(Args& args) {
     if (!args.continue_title.empty()) {
         target_title = args.continue_title;
         if (target_title == "__last__") {
-            // FIX: Use fast path for finding last conversation
             target_title = find_last_conversation_title();
         }
         if (!target_title.empty()) {
@@ -324,16 +386,19 @@ static int run_chat_mode(Args& args) {
                     }
                 }
             }
+            
+            // FIX: Always output conversation ID to stderr
+            std::cerr << "[Conversation: " << target_title << "]\n";
         }
     }
 
+    // FIX: Allow continue without input - use else if to prevent double-check
     if (!target_title.empty() && input.empty()) {
-        std::cout << target_title << "\n";
+        std::cerr << "[Continuing conversation: " << target_title << "]\n";
         Clipboard::set_content(target_title);
-        return 0;
-    }
-
-    if (input.empty()) { 
+        // Fall through to allow empty prompt - model will respond to history
+    } else if (input.empty()) { 
+        // Only error if NOT continuing a conversation
         Logger::error("No input provided"); 
         return 1; 
     }
@@ -379,9 +444,7 @@ static int run_chat_mode(Args& args) {
     loader.update_model(selected_model);
     loader.start();
 
-    const std::string save_title = (args.continue_title.empty() || 
-                                    args.continue_title == "__last__" || 
-                                    args.isolate) ? "" : args.continue_title;
+    const std::string save_title = (args.isolate || target_title.empty()) ? "" : target_title;
     
     g_interrupted.store(false);
     g_running.store(true);
@@ -421,7 +484,6 @@ int main(int argc, char* argv[]) {
                          : LogLevel::INFO);
     }
 
-    // FIX: Don't load languages unconditionally - only when needed
     if (Config::instance().format_markdown_enabled()) {
         CodeBlockParser::load_supported_languages();
     }
@@ -447,7 +509,6 @@ int main(int argc, char* argv[]) {
     } else if (!args.show_title.empty() || args.show_last) {
         std::string title = args.show_title;
         
-        // FIX: Use fast path for -S (show-last) - don't load all conversations
         if (args.show_last) {
             title = find_last_conversation_title();
             if (title.empty()) {

@@ -3,6 +3,7 @@
 
 #include <string>
 #include <unordered_set>
+#include <unordered_map>
 
 class CodeBlockParser {
 public:
@@ -10,7 +11,6 @@ public:
         enum Type { NONE, IN_BLOCK } type = NONE;
         size_t fence_indent = 0;  // Tracks opening fence indentation
         bool at_line_start = false;
-        //bool at_line_start = true;
     };
     
     struct ParseResult {
@@ -22,12 +22,15 @@ public:
     };
 
     static std::unordered_set<std::string> supported_languages;
+    static std::unordered_map<std::string, std::string> extension_to_lang;
     
     static void load_supported_languages();
+    static void load_filetype_mappings();
     static bool is_language_supported(const std::string& lang);
     static ParseResult parse_next(const std::string& data, size_t pos, State& current_state, bool is_final = false);
     
 private:
+    static std::string resolve_language_from_extension(const std::string& ext);
     static bool is_valid_fence_language_char(char c);
     static std::string extract_language_from_fence(const std::string& line_after_fence);
     static bool is_partial_fence(const std::string& str);

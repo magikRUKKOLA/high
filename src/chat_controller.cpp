@@ -15,6 +15,7 @@
 #include <strings.h>
 #include <cstring>
 #include <unistd.h>
+#include <regex>
 
 std::atomic<bool> g_running{true};
 std::atomic<bool> g_interrupted{false};
@@ -34,16 +35,52 @@ CursorGuard::~CursorGuard() {
 
 std::string ChatController::match_model(const std::vector<std::string>& models, const std::string& query) {
     if (models.empty()) return query;
+    
+    // 1. Exact match (case-sensitive)
     for (const auto& m : models) {
-        if (strcasecmp(m.c_str(), query.c_str()) == 0) return m;
+        if (m == query) {
+            Logger::debug("[Model] Exact match found: '%s'", m.c_str());
+            return m;
+        }
     }
+    
+    // 2. Lowercase match (case-insensitive exact)
     std::string lower_q = query;
     for (char& c : lower_q) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    
     for (const auto& m : models) {
         std::string lower_m = m;
         for (char& c : lower_m) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        if (lower_m.find(lower_q) == 0) return m;
+        if (lower_m == lower_q) {
+            Logger::debug("[Model] Case-insensitive match found: '%s'", m.c_str());
+            return m;
+        }
     }
+    
+    // 3. Lowercase prefix match (case-insensitive prefix)
+    for (const auto& m : models) {
+        std::string lower_m = m;
+        for (char& c : lower_m) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (lower_m.find(lower_q) == 0) {
+            Logger::debug("[Model] Prefix match found: '%s'", m.c_str());
+            return m;
+        }
+    }
+    
+    // 4. Regexp match (case-insensitive)
+    try {
+        std::regex pattern(query, std::regex::icase | std::regex::extended);
+        for (const auto& m : models) {
+            if (std::regex_search(m, pattern)) {
+                Logger::debug("[Model] Regexp match found: '%s' (pattern: '%s')", m.c_str(), query.c_str());
+                return m;
+            }
+        }
+    } catch (const std::regex_error& e) {
+        Logger::debug("[Model] Regexp compilation failed for '%s': %s", query.c_str(), e.what());
+    }
+    
+    // 5. Fallback to first model
     Logger::warn("Model '%s' not found, using default: %s", query.c_str(), models[0].c_str());
     return models[0];
 }
@@ -54,7 +91,7 @@ void ChatController::process_single_message(const std::string& model,
                                            const std::string& save_title,
                                            size_t stream_delay_ms,
                                            size_t stream_chunk_size) {
-    if (input.empty()) { Logger::error("No input provided"); return; }
+    if (input.empty() && history.empty()) { Logger::error("No input provided"); return; }
 
     ConversationHistory full_history = history;
     full_history.push_back({"user", input});
@@ -63,6 +100,7 @@ void ChatController::process_single_message(const std::string& model,
     bool format_output = Config::instance().format_markdown_enabled();
     FormatContext format_ctx;
     TerminalColorGuard color_guard;
+    CursorGuard cursor_guard;
     SSEParser parser;
     std::atomic<bool> done{false};
     
@@ -74,9 +112,10 @@ void ChatController::process_single_message(const std::string& model,
         loader.stop();
         if (ev.type == SSEParser::EventType::DONE) {
             if (in_reasoning) {
-                std::cout << "\n</th" << "ink>\n\n" << std::flush;
+                format_ctx.md_highlighter.reset();
+                std::cout << "\n</th" << "ink>\n" << std::flush;
                 assistant_response += "\n</th";
-                assistant_response += "ink>\n\n";
+                assistant_response += "ink>\n";
                 in_reasoning = false;
             }
             if (format_output) process_format_buffer("", format_ctx, Config::instance().get_highlight_theme(), true);
@@ -90,14 +129,15 @@ void ChatController::process_single_message(const std::string& model,
                 if (!in_reasoning) {
                     std::cout << "\n<th" << "ink>\n" << std::flush;
                     assistant_response += "\n<th";
-                    assistant_response += "ink>\n\n";
+                    assistant_response += "ink>\n";
                     in_reasoning = true;
                 }
             } else if (ev.type == SSEParser::EventType::CONTENT) {
                 if (in_reasoning) {
-                    std::cout << "\n</th" << "ink>\n\n" << std::flush;
+                    format_ctx.md_highlighter.reset();
+                    std::cout << "\n</th" << "ink>\n" << std::flush;
                     assistant_response += "\n</th";
-                    assistant_response += "ink>\n\n";
+                    assistant_response += "ink>\n";
                     in_reasoning = false;
                 }
             }
@@ -166,9 +206,10 @@ void ChatController::process_single_message(const std::string& model,
     }
 
     if (in_reasoning) {
-        std::cout << "\n</th" << "ink>\n\n" << std::flush;
+        format_ctx.md_highlighter.reset();
+        std::cout << "\n</th" << "ink>\n" << std::flush;
         assistant_response += "\n</th";
-        assistant_response += "ink>\n\n";
+        assistant_response += "ink>\n";
         in_reasoning = false;
     }
 
@@ -191,8 +232,11 @@ void ChatController::process_single_message(const std::string& model,
         if (!assistant_response.empty()) full_history.push_back({"assistant", assistant_response});
         std::string title = save_title.empty() ? ConversationManager::generate_title() : save_title;
         ConversationManager::save_conversation(title, full_history, model, mark_interrupted);
-        if (mark_interrupted) std::cerr << "[Conversation saved (incomplete): " << title << "]\n";
-        else if (save_title.empty()) std::cerr << "[Saved conversation: " << title << "]\n";
+        if (mark_interrupted) {
+            std::cerr << "[Conversation saved (incomplete): " << title << "]\n";
+        } else {
+            std::cerr << "[Conversation: " << title << "]\n";
+        }
     } else if (!should_save) {
         std::cerr << "[Conversation discarded]\n";
     }

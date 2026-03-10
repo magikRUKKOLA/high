@@ -1,0 +1,119 @@
+<svg viewBox="0 0 800 570" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <rect width="800" height="570" fill="#fafafa"/>
+  
+  <text x="400" y="40" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" 
+        font-size="18" font-weight="600" fill="#2d3748">CPU Usage Comparison: mods vs high</text>
+  <text x="400" y="63" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" 
+        font-size="12" fill="#718096">Qwen3.5-397B-A17B-IQ3_S | Chess Program Generation Task</text>
+  
+  <line x1="80" y1="80" x2="80" y2="380" stroke="#e2e8f0" stroke-width="2"/>
+  <line x1="80" y1="380" x2="720" y2="380" stroke="#e2e8f0" stroke-width="2"/>
+  
+  <text x="70" y="383" text-anchor="end" font-family="monospace" font-size="11" fill="#718096">0s</text>
+  <text x="70" y="333" text-anchor="end" font-family="monospace" font-size="11" fill="#718096">50s</text>
+  <text x="70" y="283" text-anchor="end" font-family="monospace" font-size="11" fill="#718096">100s</text>
+  <text x="70" y="233" text-anchor="end" font-family="monospace" font-size="11" fill="#718096">150s</text>
+  <text x="70" y="183" text-anchor="end" font-family="monospace" font-size="11" fill="#718096">200s</text>
+  <text x="70" y="133" text-anchor="end" font-family="monospace" font-size="11" fill="#718096">250s</text>
+  <text x="70" y="83" text-anchor="end" font-family="monospace" font-size="11" fill="#718096">300s</text>
+  
+  <line x1="80" y1="333" x2="720" y2="333" stroke="#f0f0f0" stroke-width="1"/>
+  <line x1="80" y1="283" x2="720" y2="283" stroke="#f0f0f0" stroke-width="1"/>
+  <line x1="80" y1="233" x2="720" y2="233" stroke="#f0f0f0" stroke-width="1"/>
+  <line x1="80" y1="183" x2="720" y2="183" stroke="#f0f0f0" stroke-width="1"/>
+  <line x1="80" y1="133" x2="720" y2="133" stroke="#f0f0f0" stroke-width="1"/>
+  <line x1="80" y1="83" x2="720" y2="83" stroke="#f0f0f0" stroke-width="1"/>
+  
+  <!-- mods bar with link -->
+  <a href="https://github.com/charmbracelet/mods/" target="_blank">
+    <rect x="180" y="165.6" width="120" height="214.4" fill="#e53e3e" rx="4" opacity="0.85" style="cursor:pointer"/>
+    <rect x="180" y="165.6" width="120" height="214.4" fill="url(#grad1)" rx="4" opacity="0.7" style="cursor:pointer"/>
+    <text x="240" y="157" text-anchor="middle" font-family="monospace" 
+          font-size="13" font-weight="600" fill="#c53030" style="cursor:pointer">214.4s</text>
+  </a>
+  
+  <!-- high bar with link -->
+  <a href="http://github.com/magikRUKKOLA/high" target="_blank">
+    <rect x="500" y="379" width="120" height="1" fill="#38a169" rx="2" opacity="0.85" style="cursor:pointer"/>
+    <rect x="500" y="379" width="120" height="1" fill="url(#grad2)" rx="2" opacity="0.7" style="cursor:pointer"/>
+    <text x="560" y="372" text-anchor="middle" font-family="monospace" 
+          font-size="13" font-weight="600" fill="#2f855a" style="cursor:pointer">1.0s</text>
+  </a>
+  
+  <!-- mods text labels with link -->
+  <a href="https://github.com/charmbracelet/mods/" target="_blank">
+    <text x="240" y="405" text-anchor="middle" font-family="system-ui, sans-serif" 
+          font-size="14" font-weight="600" fill="#2d3748" style="cursor:pointer">mods</text>
+    <text x="240" y="425" text-anchor="middle" font-family="monospace" 
+          font-size="12" fill="#718096" style="cursor:pointer">214.4s CPU</text>
+    <text x="240" y="442" text-anchor="middle" font-family="monospace" 
+          font-size="10" fill="#a0aec0" style="cursor:pointer">3m04s real</text>
+  </a>
+  
+  <!-- high text labels with link -->
+  <a href="http://github.com/magikRUKKOLA/high" target="_blank">
+    <text x="560" y="405" text-anchor="middle" font-family="system-ui, sans-serif" 
+          font-size="14" font-weight="600" fill="#2d3748" style="cursor:pointer">high</text>
+    <text x="560" y="425" text-anchor="middle" font-family="monospace" 
+          font-size="12" fill="#718096" style="cursor:pointer">1.0s CPU</text>
+    <text x="560" y="442" text-anchor="middle" font-family="monospace" 
+          font-size="10" fill="#a0aec0" style="cursor:pointer">2m13s real</text>
+  </a>
+  
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#fc8181;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#e53e3e;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#68d391;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#38a169;stop-opacity:1"/>
+    </linearGradient>
+  </defs>
+  
+  <rect x="60" y="450" width="680" height="120" fill="#ffffff" stroke="#e2e8f0" stroke-width="1" rx="6"/>
+  
+  <text x="75" y="470" font-family="system-ui, sans-serif" 
+        font-size="10" font-weight="600" fill="#4a5568">Prompt:</text>
+  <text x="75" y="486" font-family="monospace" 
+        font-size="8" fill="#4a5568">"can you write a eloquent chess program in c with ai for tui?"</text>
+  
+  <!-- mods legend with link -->
+  <a href="https://github.com/charmbracelet/mods/" target="_blank">
+    <circle cx="75" cy="505" r="4" fill="#e53e3e" style="cursor:pointer"/>
+    <text x="84" y="508" font-family="system-ui, sans-serif" 
+          font-size="9" fill="#4a5568" style="cursor:pointer">mods — 214.4s CPU</text>
+    <text x="84" y="520" font-family="monospace" 
+          font-size="8" fill="#718096" style="cursor:pointer">real 3m03.8s | user 3m12.4s | sys 0m22.0s</text>
+  </a>
+  
+  <!-- high legend with link -->
+  <a href="http://github.com/magikRUKKOLA/high" target="_blank">
+    <circle cx="75" cy="538" r="4" fill="#38a169" style="cursor:pointer"/>
+    <text x="84" y="541" font-family="system-ui, sans-serif" 
+          font-size="9" fill="#4a5568" style="cursor:pointer">high — 1.0s CPU</text>
+    <text x="84" y="553" font-family="monospace" 
+          font-size="8" fill="#718096" style="cursor:pointer">real 2m13.0s | user 0m0.5s | sys 0m0.5s</text>
+  </a>
+  
+  <text x="730" y="490" font-family="system-ui, sans-serif" 
+        font-size="9" fill="#718096" font-style="italic" text-anchor="end">
+    high: 99.5% less CPU</text>
+  <text x="730" y="506" font-family="system-ui, sans-serif" 
+        font-size="9" fill="#718096" font-style="italic" text-anchor="end">
+    28% faster real time</text>
+  <text x="730" y="522" font-family="system-ui, sans-serif" 
+        font-size="9" fill="#718096" font-style="italic" text-anchor="end">
+    Same prompt, same model</text>
+  <text x="730" y="538" font-family="system-ui, sans-serif" 
+        font-size="9" fill="#a0aec0" font-style="italic" text-anchor="end">
+    7k tokens output</text>
+  
+  <text x="400" y="398" text-anchor="middle" font-family="system-ui, sans-serif" 
+        font-size="10" fill="#a0aec0">TUI LLM Client</text>
+  <text x="25" y="230" text-anchor="middle" font-family="system-ui, sans-serif" 
+        font-size="10" fill="#a0aec0" transform="rotate(-90, 25, 230)">CPU Time (seconds)</text>
+  
+  <circle cx="180" cy="380" r="4" fill="#e53e3e" opacity="0.6"/>
+  <circle cx="500" cy="380" r="4" fill="#38a169" opacity="0.6"/>
+</svg>
