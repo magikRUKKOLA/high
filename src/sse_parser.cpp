@@ -16,9 +16,11 @@ void SSEParser::feed(const char* ptr, size_t size) {
     Logger::debug("[SSE] feed: received %zu bytes, buffer was %zu bytes", 
                   size, buffer.size());
     if (size > 0) {
-        std::string debug_preview = (size > 100) ? ptr + (size - 100) : ptr;
-        Logger::debug("[SSE] Last %zu bytes: '%s'", 
-                     debug_preview.size(), debug_preview.c_str());
+        // FIX: Proper truncation with ellipsis
+        size_t debug_size = std::min(size, (size_t)100);
+        std::string debug_preview = std::string(ptr + (size - debug_size), debug_size);
+        Logger::debug("[SSE] Last %zu bytes: '%s'",
+                     debug_size, debug_preview.c_str());
     }
     
     buffer.append(ptr, size);

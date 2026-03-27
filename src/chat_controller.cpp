@@ -103,6 +103,10 @@ void ChatController::process_single_message(const std::string& model,
     CursorGuard cursor_guard;
     SSEParser parser;
     std::atomic<bool> done{false};
+    std::string THINK_OPEN  = "\n<th";
+    std::string THINK_CLOSE = "\n</th";
+    THINK_OPEN.append("ink>\n");
+    THINK_CLOSE.append("ink>\n");
     
     bool in_reasoning = false;
     
@@ -112,13 +116,17 @@ void ChatController::process_single_message(const std::string& model,
         loader.stop();
         if (ev.type == SSEParser::EventType::DONE) {
             if (in_reasoning) {
+                if (format_output) process_format_buffer(THINK_CLOSE, format_ctx, Config::instance().get_highlight_theme(), true);
+                else std::cout << THINK_CLOSE << std::flush;
                 format_ctx.md_highlighter.reset();
-                std::cout << "\n</th" << "ink>\n" << std::flush;
-                assistant_response += "\n</th";
-                assistant_response += "ink>\n";
+                assistant_response += THINK_CLOSE;
                 in_reasoning = false;
+                // Reset codeblock parser state when exiting reasoning
+                format_ctx.cb_state = CodeBlockParser::State{};
+                format_ctx.cb_state.at_line_start = true;
+                format_ctx.parse_buffer.clear();
             }
-            if (format_output) process_format_buffer("", format_ctx, Config::instance().get_highlight_theme(), true);
+            else if (format_output) process_format_buffer("", format_ctx, Config::instance().get_highlight_theme(), true);
             done.store(true);
             return;
         }
@@ -127,18 +135,20 @@ void ChatController::process_single_message(const std::string& model,
 
             if (ev.type == SSEParser::EventType::REASONING) {
                 if (!in_reasoning) {
-                    std::cout << "\n<th" << "ink>\n" << std::flush;
-                    assistant_response += "\n<th";
-                    assistant_response += "ink>\n";
+                    std::cout << THINK_OPEN << std::flush;
+                    assistant_response += THINK_OPEN;
                     in_reasoning = true;
                 }
             } else if (ev.type == SSEParser::EventType::CONTENT) {
                 if (in_reasoning) {
+                    if (format_output) process_format_buffer(THINK_CLOSE, format_ctx, Config::instance().get_highlight_theme(), true);
+                    else std::cout << THINK_CLOSE << std::flush;
                     format_ctx.md_highlighter.reset();
-                    std::cout << "\n</th" << "ink>\n" << std::flush;
-                    assistant_response += "\n</th";
-                    assistant_response += "ink>\n";
+                    assistant_response += THINK_CLOSE;
                     in_reasoning = false;
+                    format_ctx.cb_state = CodeBlockParser::State{};
+                    format_ctx.cb_state.at_line_start = true;
+                    format_ctx.parse_buffer.clear();
                 }
             }
 
@@ -206,11 +216,12 @@ void ChatController::process_single_message(const std::string& model,
     }
 
     if (in_reasoning) {
+        std::cout << THINK_CLOSE << std::flush;
         format_ctx.md_highlighter.reset();
-        std::cout << "\n</th" << "ink>\n" << std::flush;
-        assistant_response += "\n</th";
-        assistant_response += "ink>\n";
         in_reasoning = false;
+        format_ctx.cb_state = CodeBlockParser::State{};
+        format_ctx.cb_state.at_line_start = true;
+        format_ctx.parse_buffer.clear();
     }
 
     if (format_output && !done) process_format_buffer("", format_ctx, Config::instance().get_highlight_theme(), true);
@@ -232,12 +243,17 @@ void ChatController::process_single_message(const std::string& model,
         if (!assistant_response.empty()) full_history.push_back({"assistant", assistant_response});
         std::string title = save_title.empty() ? ConversationManager::generate_title() : save_title;
         ConversationManager::save_conversation(title, full_history, model, mark_interrupted);
+
+        // Add newline to ensure we're on a fresh line
+        std::cout << "\n" << std::flush;
+
         if (mark_interrupted) {
             std::cerr << "[Conversation saved (incomplete): " << title << "]\n";
         } else {
             std::cerr << "[Conversation: " << title << "]\n";
         }
     } else if (!should_save) {
+        std::cout << "\n" << std::flush;  // ← Also add here for consistency
         std::cerr << "[Conversation discarded]\n";
     }
 }

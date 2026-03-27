@@ -233,7 +233,7 @@ void process_format_buffer(const std::string& input,
                         Logger::debug("[OF] >>> Markdown mode, using simple highlighter");
                         if (!ctx.md_highlighter.is_active()) {
                             ctx.md_highlighter.set_simple_mode(true);
-                            ctx.md_highlighter.start("txt", theme);
+                            ctx.md_highlighter.start("", theme);
                         }
 
                         std::string processed = ctx.md_highlighter.feed(result.content);
@@ -264,8 +264,8 @@ void process_format_buffer(const std::string& input,
             }
 
             case CodeBlockParser::ParseResult::CLOSE_FENCE: {
-                Logger::debug("[OF] >>> CLOSE_FENCE: advance=%zu, new_lang='%s'",
-                             result.advance_by, result.language.c_str());
+                Logger::debug("[OF] >>> CLOSE_FENCE: advance=%zu, new_lang='%s', fence_indent=%zu",
+                             result.advance_by, result.language.c_str(), result.fence_indent);
                 
                 if (ctx.ghost_active) {
                     Logger::debug("[OF] >>> CLEARING ghost before close fence");
@@ -284,10 +284,10 @@ void process_format_buffer(const std::string& input,
                     }
                 }
                 
-                Logger::debug("[OF] >>> OUTPUTTING cursor move: \\033[1F (up one line)");
-                std::cout << "\033[1F";
-                Logger::debug("[OF] >>> OUTPUTTING fence close: '```\\033[3D'");
-                std::cout << "```\033[3D" << std::flush;
+                Logger::debug("[OF] >>> OUTPUTTING fence close");
+                std::cout << "\033[1F";  // Up one line
+                std::cout << "\033[" << result.fence_indent + 1 << "G";  // Move to saved indent column
+                std::cout << "\033[0m```\033[1E" << std::flush;
                 
                 if (!result.language.empty()) {
                     Logger::debug("[OF] >>> NESTED codeblock: lang='%s'", result.language.c_str());
@@ -310,7 +310,7 @@ void process_format_buffer(const std::string& input,
                     if (md_enabled) {
                         Logger::debug("[OF] >>> Restarting md_highlighter");
                         ctx.md_highlighter.set_simple_mode(true);
-                        ctx.md_highlighter.start("txt", theme);
+                        ctx.md_highlighter.start("", theme);
                     }
                 }
 
@@ -375,7 +375,7 @@ void process_format_buffer(const std::string& input,
                 }
             }
             Logger::debug("[OF] >>> OUTPUTTING closing fence: '```\\n'");
-            std::cout << "```\n" << std::flush;
+            std::cout << "\033[0m```\n" << std::flush;
             ctx.cb_state.type = CodeBlockParser::State::NONE;
             ctx.cb_state.fence_indent = 0;
         }

@@ -9,8 +9,9 @@ class CodeBlockParser {
 public:
     struct State { 
         enum Type { NONE, IN_BLOCK } type = NONE;
-        size_t fence_indent = 0;  // Tracks opening fence indentation
+        size_t fence_indent = 0;
         bool at_line_start = false;
+        size_t pending_indent = 0;
     };
     
     struct ParseResult {
@@ -19,6 +20,7 @@ public:
         std::string content;
         std::string language;
         size_t advance_by = 0;
+        size_t fence_indent = 0;
     };
 
     static std::unordered_set<std::string> supported_languages;
