@@ -408,7 +408,6 @@ CodeBlockParser::ParseResult CodeBlockParser::parse_next(
                     after_fence++;
                 }
                 bool is_newline_or_end = (after_fence >= data.size() || data[after_fence] == '\n' || data[after_fence] == '\r');
-								// In State::IN_BLOCK section, when closing fence is detected
 								if (indent == current_state.fence_indent && is_newline_or_end) {
 										size_t newline_pos = data.find('\n', check_pos);
 										if (newline_pos == std::string::npos && !is_final) {
