@@ -45,7 +45,7 @@ private:
     Config();
     
     mutable std::mutex mutex;
-    std::string api_base{"http://localhost:8042/v1"};
+    std::string api_base{"http://localhost:8080/v1"};
     std::string config_dir;
     std::string http_proxy;
     std::string system_role{"You are a helpful assistant."};

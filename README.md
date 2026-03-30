@@ -244,7 +244,7 @@ export PATH="/usr/local/bin:$PATH"
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LLM_API_BASE` | API endpoint URL | `http://localhost:8042/v1` |
+| `LLM_API_BASE` | API endpoint URL | `http://localhost:8080/v1` |
 | `LLM_CONFIG_DIR` | Configuration directory | `~/.config/high` |
 | `LLM_SYSTEM_ROLE` | Default system prompt | `You are a helpful assistant.` |
 | `LLM_MAX_TOKENS` | Maximum tokens for response | `0` (unlimited) |

@@ -71,7 +71,7 @@ private:
         std::cout << "Usage: high [OPTIONS] [PROMPT]\n"
                   << "\nTUI LLM Chat Interface v" << HIGH_VERSION_STRING << "\n"
                   << "\nOptions:\n"
-                  << "  -e, --api URL        API base (default: http://localhost:8042/v1)\n"
+                  << "  -e, --api URL        API base (default: http://localhost:8080/v1)\n"
                   << "  -m, --model MODEL    Model to use\n"
                   << "  -M, --ask-model      Interactive model selection\n"
                   << "  -L, --models         List available models\n"
