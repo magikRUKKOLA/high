@@ -16,7 +16,7 @@ Most TUI LLM suites today are implemented extremely inefficiently. For example, 
 
 The `high` solves the problem of **inefficiency** with a **Preview Mode**. It streams raw tokens immediately as "ghost text" so one can read the output as it generates, then seamlessly swaps in the syntax-highlighted version the moment the line completes.
 
-The `high` also solves the problem of **bloat** by basically having only three dependency: the `highlight`, the `curl` and the `jansson` *(everything is available via the standard Debian packages)*
+The `high` also solves the problem of [**bloat**](https://www.youtube.com/watch?v=yiLIZLPNEm8) by basically having only three dependency: the `highlight`, the `curl` and the `jansson` *(everything is available via the standard Debian packages)*
 
 For example,
 
