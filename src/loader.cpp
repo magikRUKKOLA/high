@@ -103,7 +103,7 @@ void Loader::run_spinner() {
     std::string initial_model;
     
     while (running.load(std::memory_order_relaxed)) {
-        // FIX: Check g_running too
+        // Check g_running too
         if (!g_running.load(std::memory_order_relaxed)) {
             break;
         }

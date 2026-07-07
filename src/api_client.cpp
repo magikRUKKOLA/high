@@ -81,6 +81,7 @@ std::vector<std::string> APIClient::fetch_models() {
         UniqueCURL curl(curl_easy_init());
         if (!curl) return {};
 
+        response_data.clear();  // FIX: ensure each attempt starts with a clean buffer
         char error_buffer[CURL_ERROR_SIZE] = {0};
         
         setup_curl_common(curl, url, error_buffer);
@@ -103,7 +104,6 @@ std::vector<std::string> APIClient::fetch_models() {
         if (attempt < max_retries - 1 && (res == CURLE_COULDNT_CONNECT || res == CURLE_COULDNT_RESOLVE_HOST)) {
             Logger::warn("[API] Connection failed, waiting for mDNS cache...");
             std::this_thread::sleep_for(retry_delay);
-            response_data.clear();
             continue;
         }
         break;
@@ -261,8 +261,7 @@ bool APIClient::send_chat_request(const std::string& model,
         Logger::debug("[API] Sending chat request to %s (Attempt %d/%d)", endpoint.c_str(), attempt + 1, max_retries + 1);
 
         if (attempt > 0) {
-            // Note: In a real scenario, you might want to clear the parser buffer
-            // or handle partial state, but for simplicity we assume fresh request or server handles idempotency.
+            parser.clear();
         }
 
         res = curl_easy_perform(curl.get());
@@ -280,7 +279,12 @@ bool APIClient::send_chat_request(const std::string& model,
                 Logger::error("Chat request HTTP error: code=%ld, content-type=%s",
                              http_code, content_type ? content_type : "unknown");
                 if (http_code == 503 || http_code == 502 || http_code == 504) {
-                    // Retryable gateway errors
+                    if (attempt < max_retries) {
+                        Logger::warn("[API] HTTP %ld, retrying in %ld ms... (%d/%d)",
+                                     http_code, retry_delay.count(), attempt + 1, max_retries + 1);
+                        std::this_thread::sleep_for(retry_delay);
+                        continue;
+                    }
                 } else {
                     return false;
                 }
@@ -296,7 +300,7 @@ bool APIClient::send_chat_request(const std::string& model,
 
             if (attempt < max_retries && is_retryable_error(res)) {
                 Logger::warn("[API] Request failed (%s). Retrying in %ld ms... (%d/%d)",
-                             curl_easy_strerror(res), retry_delay.count(), attempt + 1, max_retries);
+                             curl_easy_strerror(res), retry_delay.count(), attempt + 1, max_retries + 1);
                 std::this_thread::sleep_for(retry_delay);
                 continue;
             } else {

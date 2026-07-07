@@ -34,7 +34,7 @@ void set_loader_for_highlighter(Loader* loader) {
 }
 
 std::string SyntaxHighlighter::StreamingHighlighter::apply_simple_ansi(const std::string& text) {
-    Logger::debug("[HL] apply_simple_ansi: %zu bytes", text.size());
+    Logger::debug("[HL] apply_simple_ansi input: '%s' (%zu bytes)", text.c_str(), text.size());
     
     std::string result;
     size_t i = 0;
@@ -257,6 +257,10 @@ void SyntaxHighlighter::StreamingHighlighter::clear_residue(size_t rendered_widt
         }
 
         size_t rendered_final_col = rendered_width % term_width;
+        // FIX: when rendered text exactly fills the line, don't clear from column 1
+        if (rendered_final_col == 0 && rendered_width > 0) {
+            rendered_final_col = term_width;
+        }
         std::cout << "\033[" << (rendered_final_col + 1) << "G";
         std::cout << "\033[K";
 

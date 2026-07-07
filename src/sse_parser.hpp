@@ -22,9 +22,10 @@ public:
 
     void set_callback(EventCallback cb);
     void feed(const char* ptr, size_t size);
-    void flush();  // ← NEW: Flush remaining buffer
+    void flush();  // Flush remaining buffer
+    void clear();  // ← NEW: Clear buffer and tool state for retries
     
-    // NEW: Get/set reasoning state for tag insertion
+    // Get/set reasoning state for tag insertion
     bool is_in_reasoning() const { return in_reasoning_; }
     void set_in_reasoning(bool val) { in_reasoning_ = val; }
 
@@ -39,7 +40,6 @@ private:
         std::vector<std::string> ids;
     } tool_state;
     
-    // NEW: Track if we're currently in reasoning mode
     bool in_reasoning_ = false;
 
     Event parse_event(const std::string& line);

@@ -18,7 +18,7 @@ public:
     void stop();
     
     void update_color();
-    void update_model(const std::string& model_name); // NEW: Update model text
+    void update_model(const std::string& model_name); // Update model text
     
     int get_current_color() const;
 

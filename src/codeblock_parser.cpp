@@ -288,14 +288,23 @@ std::string CodeBlockParser::extract_language_from_fence(const std::string& line
 
     if (end > start) {
         std::string lang = line_after_fence.substr(start, end - start);
-        
+        std::string lower_lang = to_lower(lang);
+
+        // If the fence label is directly a supported language, use it as-is.
+        // This prevents a bad filetypes.conf mapping (e.g. cpp -> c) from
+        // overriding a valid language name like "cpp".
+        if (supported_languages.find(lower_lang) != supported_languages.end()) {
+            return lower_lang;
+        }
+
+        // Otherwise fall back to extension-to-language resolution.
         std::string resolved = resolve_language_from_extension(lang);
         if (!resolved.empty()) {
-            Logger::debug("[CB] Resolved extension '%s' to language '%s'", 
+            Logger::debug("[CB] Resolved extension '%s' to language '%s'",
                          lang.c_str(), resolved.c_str());
             return resolved;
         }
-        
+
         return lang;
     }
     return "";
@@ -408,27 +417,62 @@ CodeBlockParser::ParseResult CodeBlockParser::parse_next(
                     after_fence++;
                 }
                 bool is_newline_or_end = (after_fence >= data.size() || data[after_fence] == '\n' || data[after_fence] == '\r');
-								if (indent == current_state.fence_indent && is_newline_or_end) {
-										size_t newline_pos = data.find('\n', check_pos);
-										if (newline_pos == std::string::npos && !is_final) {
-												Logger::debug("[CB] Incomplete close fence, NEED_MORE_DATA");
-												result.type = ParseResult::NEED_MORE_DATA;
-												return result;
-										}
-										size_t advance = (newline_pos != std::string::npos) ? (newline_pos - pos + 1) : (data.size() - pos);
+                
+                if (indent == current_state.fence_indent && is_newline_or_end) {
+                    size_t newline_pos = data.find('\n', check_pos);
+                    if (newline_pos == std::string::npos && !is_final) {
+                        Logger::debug("[CB] Incomplete close fence, NEED_MORE_DATA");
+                        result.type = ParseResult::NEED_MORE_DATA;
+                        return result;
+                    }
+                    size_t advance = (newline_pos != std::string::npos) ? (newline_pos - pos + 1) : (data.size() - pos);
 
-										// Save fence_indent BEFORE resetting state
-										result.type = ParseResult::CLOSE_FENCE;
-										result.advance_by = advance;
-										result.fence_indent = current_state.fence_indent;
+                    result.type = ParseResult::CLOSE_FENCE;
+                    result.advance_by = advance;
+                    result.fence_indent = current_state.fence_indent;
 
-										current_state.type = State::NONE;
-										current_state.fence_indent = 0;
+                    if (current_state.depth > 1) {
+                        current_state.depth--;
+                        if (!current_state.indent_stack.empty()) {
+                            current_state.indent_stack.pop_back();
+                            current_state.fence_indent = current_state.indent_stack.back();
+                        }
+                    } else {
+                        current_state.type = State::NONE;
+                        current_state.fence_indent = 0;
+                        current_state.depth = 0;
+                        current_state.indent_stack.clear();
+                    }
 
-										set_result(ParseResult::CLOSE_FENCE, advance);
-										Logger::debug("[CB] CLOSE_FENCE accepted, fence_indent=%zu", result.fence_indent);
-										return result;
-								}
+                    set_result(ParseResult::CLOSE_FENCE, advance);
+                    Logger::debug("[CB] CLOSE_FENCE accepted, depth=%zu", current_state.depth);
+                    return result;
+                }
+                else if (!is_newline_or_end && indent == current_state.fence_indent) {
+                    // Not a close fence because there's text after ```,
+                    // AND the indent matches the current block.
+                    // Treat it as an opening fence for a nested block.
+                    size_t newline_pos = data.find('\n', check_pos);
+                    if (newline_pos == std::string::npos) {
+                        if (!is_final) {
+                            result.type = ParseResult::NEED_MORE_DATA;
+                            return result;
+                        }
+                        newline_pos = data.size();
+                    }
+                    
+                    std::string after_fence = data.substr(check_pos + 3, newline_pos - (check_pos + 3));
+                    std::string lang = extract_language_from_fence(after_fence);
+
+                    size_t advance = newline_pos - pos + 1;
+                    current_state.depth++;
+                    current_state.indent_stack.push_back(indent);
+                    current_state.fence_indent = indent;
+                    result.language = lang;
+                    set_result(ParseResult::OPEN_FENCE_COMPLETE, advance);
+                    Logger::debug("[CB] NESTED OPEN_FENCE accepted, lang='%s', depth=%zu", lang.c_str(), current_state.depth);
+                    return result;
+                }
                 else {
                     Logger::debug("[CB] Not a valid fence (indent=%zu vs %zu), treating as literal", indent, current_state.fence_indent);
                 }
@@ -491,6 +535,9 @@ CodeBlockParser::ParseResult CodeBlockParser::parse_next(
                             size_t advance = newline_pos - pos + 1;
                             current_state.type = State::IN_BLOCK;
                             current_state.fence_indent = indent;
+                            current_state.depth = 1;
+                            current_state.indent_stack.clear();
+                            current_state.indent_stack.push_back(indent);
                             result.language = lang;
                             set_result(ParseResult::OPEN_FENCE_COMPLETE, advance);
                             Logger::debug("[CB] OPEN_FENCE accepted, indent=%zu", indent);
@@ -500,11 +547,25 @@ CodeBlockParser::ParseResult CodeBlockParser::parse_next(
                         size_t advance = newline_pos - pos + 1;
                         current_state.type = State::IN_BLOCK;
                         current_state.fence_indent = indent;
+                        current_state.depth = 1;
+                        current_state.indent_stack.clear();
+                        current_state.indent_stack.push_back(indent);
                         result.language = "";
                         set_result(ParseResult::OPEN_FENCE_COMPLETE, advance);
                         Logger::debug("[CB] OPEN_FENCE (no lang), indent=%zu", indent);
                         return result;
                     }
+                } else {
+                    size_t advance = newline_pos - pos + 1;
+                    current_state.type = State::IN_BLOCK;
+                    current_state.fence_indent = indent;
+                    current_state.depth = 1;
+                    current_state.indent_stack.clear();
+                    current_state.indent_stack.push_back(indent);
+                    result.language = lang;
+                    set_result(ParseResult::OPEN_FENCE_COMPLETE, advance);
+                    Logger::debug("[CB] OPEN_FENCE (unsupported lang='%s'), indent=%zu", lang, indent);
+                    return result;
                 }
             }
         }

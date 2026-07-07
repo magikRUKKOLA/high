@@ -103,10 +103,18 @@ void ChatController::process_single_message(const std::string& model,
     CursorGuard cursor_guard;
     SSEParser parser;
     std::atomic<bool> done{false};
-    std::string THINK_OPEN  = "\n<th";
-    std::string THINK_CLOSE = "\n</th";
-    THINK_OPEN.append("ink>\n");
-    THINK_CLOSE.append("ink>\n");
+
+    // ── Display tags: newlines are fine for the TUI ──
+    const char THINK_OPEN_DISP_ARR[]  = {'\n', '<', 't', 'h', 'i', 'n', 'k', '>', '\n', '\0'};
+    const char THINK_CLOSE_DISP_ARR[] = {'\n', '<', '/', 't', 'h', 'i', 'n', 'k', '>', '\n', '\0'};
+    const std::string THINK_OPEN_DISP(THINK_OPEN_DISP_ARR);
+    const std::string THINK_CLOSE_DISP(THINK_CLOSE_DISP_ARR);
+
+    // ── Storage tags: exact bytes, no injected whitespace ──
+    const char THINK_OPEN_ARR[]  = {'<', 't', 'h', 'i', 'n', 'k', '>', '\0'};
+    const char THINK_CLOSE_ARR[] = {'<', '/', 't', 'h', 'i', 'n', 'k', '>', '\0'};
+    const std::string THINK_OPEN(THINK_OPEN_ARR);
+    const std::string THINK_CLOSE(THINK_CLOSE_ARR);
     
     bool in_reasoning = false;
     
@@ -115,18 +123,6 @@ void ChatController::process_single_message(const std::string& model,
     parser.set_callback([&](const SSEParser::Event& ev) {
         loader.stop();
         if (ev.type == SSEParser::EventType::DONE) {
-            if (in_reasoning) {
-                if (format_output) process_format_buffer(THINK_CLOSE, format_ctx, Config::instance().get_highlight_theme(), true);
-                else std::cout << THINK_CLOSE << std::flush;
-                format_ctx.md_highlighter.reset();
-                assistant_response += THINK_CLOSE;
-                in_reasoning = false;
-                // Reset codeblock parser state when exiting reasoning
-                format_ctx.cb_state = CodeBlockParser::State{};
-                format_ctx.cb_state.at_line_start = true;
-                format_ctx.parse_buffer.clear();
-            }
-            else if (format_output) process_format_buffer("", format_ctx, Config::instance().get_highlight_theme(), true);
             done.store(true);
             return;
         }
@@ -135,14 +131,23 @@ void ChatController::process_single_message(const std::string& model,
 
             if (ev.type == SSEParser::EventType::REASONING) {
                 if (!in_reasoning) {
-                    std::cout << THINK_OPEN << std::flush;
+                    if (format_output)
+                        process_format_buffer(THINK_OPEN_DISP, format_ctx,
+                                              Config::instance().get_highlight_theme(), false);
+                    else
+                        std::cout << THINK_OPEN_DISP << std::flush;
+
                     assistant_response += THINK_OPEN;
                     in_reasoning = true;
                 }
             } else if (ev.type == SSEParser::EventType::CONTENT) {
                 if (in_reasoning) {
-                    if (format_output) process_format_buffer(THINK_CLOSE, format_ctx, Config::instance().get_highlight_theme(), true);
-                    else std::cout << THINK_CLOSE << std::flush;
+                    if (format_output)
+                        process_format_buffer(THINK_CLOSE_DISP, format_ctx,
+                                              Config::instance().get_highlight_theme(), true);
+                    else
+                        std::cout << THINK_CLOSE_DISP << std::flush;
+
                     format_ctx.md_highlighter.reset();
                     assistant_response += THINK_CLOSE;
                     in_reasoning = false;
@@ -151,7 +156,7 @@ void ChatController::process_single_message(const std::string& model,
                     format_ctx.parse_buffer.clear();
                 }
             }
-
+            // raw payload always appended unchanged
             assistant_response += ev.data;
 
             if (stream_chunk_size > 0 && ev.data.size() > stream_chunk_size) {
@@ -216,7 +221,13 @@ void ChatController::process_single_message(const std::string& model,
     }
 
     if (in_reasoning) {
-        std::cout << THINK_CLOSE << std::flush;
+        if (format_output)
+            process_format_buffer(THINK_CLOSE_DISP, format_ctx,
+                                  Config::instance().get_highlight_theme(), true);
+        else
+            std::cout << THINK_CLOSE_DISP << std::flush;
+
+        assistant_response += THINK_CLOSE;
         format_ctx.md_highlighter.reset();
         in_reasoning = false;
         format_ctx.cb_state = CodeBlockParser::State{};
@@ -224,7 +235,7 @@ void ChatController::process_single_message(const std::string& model,
         format_ctx.parse_buffer.clear();
     }
 
-    if (format_output && !done) process_format_buffer("", format_ctx, Config::instance().get_highlight_theme(), true);
+    if (format_output) process_format_buffer("", format_ctx, Config::instance().get_highlight_theme(), true);
 
     bool was_interrupted = g_interrupted.load();
     bool was_terminated = g_terminate.load();

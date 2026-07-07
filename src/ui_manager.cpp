@@ -178,6 +178,9 @@ std::string UIManager::select_conversation_interactive(
             std::cout << "\n";
         }
 
+        // Reset any lingering attributes
+        std::cout << "\033[0m";
+        
         size_t total_pages = (total_count + page_size - 1) / page_size;
         std::cout << "\033[2m(Page " << (current_page + 1) << " of " 
                   << total_pages << ")";
@@ -367,7 +370,7 @@ bool UIManager::prompt_save_interrupted() {
     new_tio.c_cc[VTIME] = 0;
     tcsetattr(tty_fd, TCSANOW, &new_tio);
 
-    write(tty_fd, "\n[Interrupted] Save conversation? [y/N]: ", 41);
+    write(tty_fd, "\n[Interrupted] Save conversation? [Y/n]: ", 41);
 
     char response_buf[4] = {0};
     int buf_idx = 0;
@@ -406,7 +409,7 @@ bool UIManager::prompt_save_interrupted() {
                 if (r == 1) {
                     if (ch == '\n' || ch == '\r') {
                         if (buf_idx == 0) {
-                            save = true;
+                            save = true;  // [Y/n] default is Yes
                         } else {
                             save = (response_buf[0] == 'y' || 
                                    response_buf[0] == 'Y');

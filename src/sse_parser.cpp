@@ -9,14 +9,21 @@ void SSEParser::set_callback(EventCallback cb) {
     event_cb = std::move(cb);
 }
 
+void SSEParser::clear() {
+    std::lock_guard lock(cb_mutex);
+    buffer.clear();
+    tool_state.arguments.clear();
+    tool_state.names.clear();
+    tool_state.ids.clear();
+    in_reasoning_ = false;
+}
+
 void SSEParser::feed(const char* ptr, size_t size) {
     if (!ptr || size == 0) return;
     
-    // DEBUG: Log what we receive
     Logger::debug("[SSE] feed: received %zu bytes, buffer was %zu bytes", 
                   size, buffer.size());
     if (size > 0) {
-        // FIX: Proper truncation with ellipsis
         size_t debug_size = std::min(size, (size_t)100);
         std::string debug_preview = std::string(ptr + (size - debug_size), debug_size);
         Logger::debug("[SSE] Last %zu bytes: '%s'",
@@ -29,6 +36,12 @@ void SSEParser::feed(const char* ptr, size_t size) {
     while ((pos = buffer.find('\n')) != std::string::npos) {
         std::string line = buffer.substr(0, pos);
         buffer.erase(0, pos + 1);
+        
+        // Strip trailing '\r' so "\r\n" line endings don't break "[DONE]" detection
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        
         if (line.empty()) continue;
         
         if (line.compare(0, 5, "data:") == 0) {
@@ -60,7 +73,6 @@ void SSEParser::feed(const char* ptr, size_t size) {
     Logger::debug("[SSE] After feed: buffer has %zu bytes remaining", buffer.size());
 }
 
-// NEW: Flush remaining buffer content
 void SSEParser::flush() {
     Logger::debug("[SSE] flush: buffer has %zu bytes", buffer.size());
     
@@ -69,36 +81,46 @@ void SSEParser::flush() {
         return;
     }
     
-    // Process any remaining content as a final line
-    std::string line = buffer;
-    buffer.clear();
+    // FIX: Append artificial newline so the line loop processes all remaining content,
+    // including any final line that arrived without a trailing \n.
+    buffer += '\n';
     
-    if (line.empty()) return;
-    
-    Logger::debug("[SSE] flush: processing final line: '%s'", line.c_str());
-    
-    if (line.compare(0, 5, "data:") == 0) {
-        line = line.substr(5);
-        size_t start = line.find_first_not_of(" \t");
-        if (start != std::string::npos) line = line.substr(start);
+    size_t pos;
+    while ((pos = buffer.find('\n')) != std::string::npos) {
+        std::string line = buffer.substr(0, pos);
+        buffer.erase(0, pos + 1);
         
-        if (line == "[DONE]") {
-            Event done_ev;
-            done_ev.type = EventType::DONE;
-            std::lock_guard lock(cb_mutex);
-            if (event_cb) event_cb(done_ev);
-            tool_state.arguments.clear();
-            tool_state.names.clear();
-            tool_state.ids.clear();
-            return;
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
         }
         
-        auto ev = parse_event(line);
-        if (ev.type != EventType::UNKNOWN) {
-            Logger::debug("[SSE] flush: emitting final event, type=%d, data='%s'", 
-                         static_cast<int>(ev.type), ev.data.c_str());
-            std::lock_guard lock(cb_mutex);
-            if (event_cb) event_cb(ev);
+        if (line.empty()) continue;
+        
+        if (line.compare(0, 5, "data:") == 0) {
+            line = line.substr(5);
+            size_t start = line.find_first_not_of(" \t");
+            if (start != std::string::npos) line = line.substr(start);
+            
+            Logger::debug("[SSE] flush: processing line: '%s'", line.c_str());
+            
+            if (line == "[DONE]") {
+                Event done_ev;
+                done_ev.type = EventType::DONE;
+                std::lock_guard lock(cb_mutex);
+                if (event_cb) event_cb(done_ev);
+                tool_state.arguments.clear();
+                tool_state.names.clear();
+                tool_state.ids.clear();
+                continue;
+            }
+            
+            auto ev = parse_event(line);
+            if (ev.type != EventType::UNKNOWN) {
+                Logger::debug("[SSE] flush: emitting final event, type=%d, data='%s'", 
+                             static_cast<int>(ev.type), ev.data.c_str());
+                std::lock_guard lock(cb_mutex);
+                if (event_cb) event_cb(ev);
+            }
         }
     }
 }

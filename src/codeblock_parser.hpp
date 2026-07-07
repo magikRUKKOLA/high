@@ -4,14 +4,17 @@
 #include <string>
 #include <unordered_set>
 #include <unordered_map>
+#include <vector>
 
 class CodeBlockParser {
 public:
     struct State { 
         enum Type { NONE, IN_BLOCK } type = NONE;
         size_t fence_indent = 0;
-        bool at_line_start = false;
+        bool at_line_start = true;
         size_t pending_indent = 0;
+        size_t depth = 0;                     // NEW: nesting depth
+        std::vector<size_t> indent_stack;     // NEW: indent per level
     };
     
     struct ParseResult {

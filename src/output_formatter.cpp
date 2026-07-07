@@ -97,8 +97,8 @@ void process_format_buffer(const std::string& input,
     Logger::debug("[OF] ========== process_format_buffer START ==========");
     Logger::debug("[OF] input_len=%zu, is_final=%d, buffer_size=%zu",
                   input.size(), is_final, ctx.parse_buffer.size());
-    Logger::debug("[OF] cb_state: type=%d, fence_indent=%zu, at_line_start=%d",
-                  ctx.cb_state.type, ctx.cb_state.fence_indent, ctx.cb_state.at_line_start);
+    Logger::debug("[OF] cb_state: type=%d, fence_indent=%zu, at_line_start=%d, depth=%zu",
+                  ctx.cb_state.type, ctx.cb_state.fence_indent, ctx.cb_state.at_line_start, ctx.cb_state.depth);
     Logger::debug("[OF] ghost_active=%d, ghost_lines=%zu, last_rendered_length=%zu",
                   ctx.ghost_active, ctx.ghost_lines, ctx.last_rendered_length);
     
@@ -140,8 +140,8 @@ void process_format_buffer(const std::string& input,
 
         switch (result.type) {
             case CodeBlockParser::ParseResult::OPEN_FENCE_COMPLETE: {
-                Logger::debug("[OF] >>> OPEN_FENCE_COMPLETE: lang='%s', indent=%zu",
-                             result.language.c_str(), ctx.cb_state.fence_indent);
+                Logger::debug("[OF] >>> OPEN_FENCE_COMPLETE: lang='%s', indent=%zu, depth=%zu",
+                             result.language.c_str(), ctx.cb_state.fence_indent, ctx.cb_state.depth);
                 Logger::debug("[OF] Current cursor state: ghost_active=%d, ghost_lines=%zu",
                              ctx.ghost_active, ctx.ghost_lines);
                 
@@ -152,19 +152,10 @@ void process_format_buffer(const std::string& input,
                 }
                 
                 if (md_enabled && ctx.md_highlighter.is_active()) {
-                    Logger::debug("[OF] >>> CLEARING md_highlighter ghost");
-                    ctx.md_highlighter.clear_ghost();
-                }
-                
-                if (ctx.last_rendered_length > 0) {
-                    Logger::debug("[OF] >>> CLEARING residue: %zu cols", ctx.last_rendered_length);
-                    ctx.md_highlighter.clear_residue(ctx.last_rendered_length);
-                    ctx.last_rendered_length = 0;
-                }
-                
-                if (md_enabled && ctx.md_highlighter.is_active()) {
                     Logger::debug("[OF] >>> ENDING md_highlighter");
                     std::string remaining = ctx.md_highlighter.end();
+                    while (!remaining.empty() && (remaining.back() == '\n' || remaining.back() == '\r'))
+                        remaining.pop_back();
                     Logger::debug("[OF] md_highlighter.end() returned %zu bytes: '%s'", 
                                  remaining.size(), debug_ansi(remaining).c_str());
                     if (!remaining.empty()) {
@@ -173,17 +164,44 @@ void process_format_buffer(const std::string& input,
                     }
                 }
                 
+                if (ctx.highlighter.is_active()) {
+                    Logger::debug("[OF] >>> NESTED: ending current highlighter, pushing '%s'", ctx.code_lang.c_str());
+                    std::string remaining = ctx.highlighter.end();
+                    while (!remaining.empty() && (remaining.back() == '\n' || remaining.back() == '\r'))
+                        remaining.pop_back();
+                    Logger::debug("[OF] Highlighter end returned %zu bytes", remaining.size());
+                    Logger::debug("[OF] Remaining output: '%s'", debug_ansi(remaining.substr(0, std::min(remaining.size(), (size_t)50))).c_str());
+                    if (!remaining.empty()) {
+                        Logger::debug("[OF] >>> OUTPUTTING remaining highlighted text");
+                        std::cout << remaining << std::flush;
+                    }
+                    //ctx.code_block_stack.push_back(ctx.code_lang);
+                }
+                
+                if (ctx.last_rendered_length > 0) {
+                    Logger::debug("[OF] >>> CLEARING residue: %zu cols", ctx.last_rendered_length);
+                    ctx.md_highlighter.clear_residue(ctx.last_rendered_length);
+                    ctx.last_rendered_length = 0;
+                }
+                
                 if (md_enabled && !ctx.md_buffer.empty()) {
                     Logger::debug("[OF] >>> FLUSHING md_buffer: %zu bytes", ctx.md_buffer.size());
                     std::cout << ctx.md_buffer << std::flush;
                     ctx.md_buffer.clear();
                 }
+                
+                // Save parent block language before we overwrite it
+                if (ctx.cb_state.depth > 1) {
+                    ctx.code_block_stack.push_back(ctx.code_lang);
+                    Logger::debug("[OF] >>> PUSHED parent lang='%s' to stack (depth=%zu)",
+                                 ctx.code_lang.c_str(), ctx.cb_state.depth);
+                }
 
                 ctx.code_lang = result.language;
-                std::string fence_line = "```" + ctx.code_lang + "\n";
+                // Respect fence_indent so indented code blocks align and overwrite ghost text fully
+                std::string fence_line = std::string(ctx.cb_state.fence_indent, ' ') + "```" + ctx.code_lang + "\n";
                 Logger::debug("[OF] >>> OUTPUTTING fence: '%s'", debug_ansi(fence_line).c_str());
                 std::cout << fence_line << std::flush;
-                ctx.cb_state.type = CodeBlockParser::State::IN_BLOCK;
                 
                 ctx.highlighter.set_simple_mode(false);
                 if (!ctx.code_lang.empty() && CodeBlockParser::is_language_supported(ctx.code_lang)) {
@@ -238,18 +256,14 @@ void process_format_buffer(const std::string& input,
 
                         std::string processed = ctx.md_highlighter.feed(result.content);
                         Logger::debug("[OF] <<< md_highlighter returned %zu bytes", processed.size());
-
                         if (!processed.empty()) {
                             Logger::debug("[OF] >>> OUTPUTTING md_highlighted text");
                             std::cout << processed << std::flush;
-
                             size_t rendered_width = calculate_display_width_no_ansi(processed);
                             Logger::debug("[OF] rendered_width=%zu, term_width=%zu", 
                                          rendered_width, get_terminal_width());
-                            
                             ctx.md_highlighter.clear_residue(rendered_width);
                         }
-
                         ctx.last_rendered_length = calculate_display_width_no_ansi(processed);
                         Logger::debug("[OF] last_rendered_length updated to %zu", ctx.last_rendered_length);
                     } else {
@@ -264,8 +278,8 @@ void process_format_buffer(const std::string& input,
             }
 
             case CodeBlockParser::ParseResult::CLOSE_FENCE: {
-                Logger::debug("[OF] >>> CLOSE_FENCE: advance=%zu, new_lang='%s', fence_indent=%zu",
-                             result.advance_by, result.language.c_str(), result.fence_indent);
+                Logger::debug("[OF] >>> CLOSE_FENCE: advance=%zu, fence_indent=%zu, depth=%zu",
+                             result.advance_by, result.fence_indent, ctx.cb_state.depth);
                 
                 if (ctx.ghost_active) {
                     Logger::debug("[OF] >>> CLEARING ghost before close fence");
@@ -276,6 +290,8 @@ void process_format_buffer(const std::string& input,
                 if (ctx.highlighter.is_active()) {
                     Logger::debug("[OF] >>> ENDING code highlighter");
                     std::string remaining = ctx.highlighter.end();
+                    while (!remaining.empty() && (remaining.back() == '\n' || remaining.back() == '\r'))
+                        remaining.pop_back();
                     Logger::debug("[OF] Highlighter end returned %zu bytes", remaining.size());
                     Logger::debug("[OF] Remaining output: '%s'", debug_ansi(remaining.substr(0, std::min(remaining.size(), (size_t)50))).c_str());
                     if (!remaining.empty()) {
@@ -284,26 +300,29 @@ void process_format_buffer(const std::string& input,
                     }
                 }
                 
+                // Print the closing fence on the current line (where the ghost text was).
+                // Do NOT move up a line with \033[1F — that would leave the ghost text intact
+                // on the line below and print the fence on the code line above.
                 Logger::debug("[OF] >>> OUTPUTTING fence close");
-                std::cout << "\033[1F";  // Up one line
                 std::cout << "\033[" << result.fence_indent + 1 << "G";  // Move to saved indent column
-                std::cout << "\033[0m```\033[1E" << std::flush;
+                std::cout << "\033[0m```\n" << std::flush;
                 
-                if (!result.language.empty()) {
-                    Logger::debug("[OF] >>> NESTED codeblock: lang='%s'", result.language.c_str());
-                    ctx.code_lang = result.language;
-                    std::string nested_fence = "```" + ctx.code_lang + "\n";
-                    Logger::debug("[OF] >>> OUTPUTTING nested fence: '%s'", debug_ansi(nested_fence).c_str());
-                    std::cout << nested_fence << std::flush;
-                    ctx.cb_state.type = CodeBlockParser::State::IN_BLOCK;
-                    ctx.highlighter.set_simple_mode(false);
-                    if (CodeBlockParser::is_language_supported(ctx.code_lang)) {
+                if (!ctx.code_block_stack.empty()) {
+                    // Return to enclosing codeblock
+                    ctx.code_lang = ctx.code_block_stack.back();
+                    ctx.code_block_stack.pop_back();
+                    Logger::debug("[OF] >>> RESTARTING enclosing codeblock: lang='%s'", ctx.code_lang.c_str());
+
+                    // Only restart forked highlighter if parent is supported
+                    if (!ctx.code_lang.empty() && CodeBlockParser::is_language_supported(ctx.code_lang)) {
+                        ctx.highlighter.set_simple_mode(false);
                         ctx.highlighter.start(ctx.code_lang, theme);
+                    } else {
+                        Logger::debug("[OF] Parent block raw/unsupported, leaving highlighter inactive");
                     }
                     ctx.is_first_chunk = true;
                 } else {
-                    ctx.cb_state.type = CodeBlockParser::State::NONE;
-                    ctx.cb_state.fence_indent = 0;
+                    // Return to markdown mode
                     ctx.code_lang.clear();
                     ctx.is_first_chunk = false;
 
@@ -327,8 +346,8 @@ void process_format_buffer(const std::string& input,
 
     if (is_final) {
         Logger::debug("[OF] ========== FINAL FLUSH ==========");
-        Logger::debug("[OF] buffer_size=%zu, in_block=%d",
-                     ctx.parse_buffer.size(), ctx.cb_state.type == CodeBlockParser::State::IN_BLOCK);
+        Logger::debug("[OF] buffer_size=%zu, in_block=%d, depth=%zu",
+                     ctx.parse_buffer.size(), ctx.cb_state.type == CodeBlockParser::State::IN_BLOCK, ctx.cb_state.depth);
         Logger::debug("[OF] ghost_active=%d, ghost_lines=%zu", ctx.ghost_active, ctx.ghost_lines);
         
         if (ctx.ghost_active) {
@@ -364,8 +383,9 @@ void process_format_buffer(const std::string& input,
             ctx.parse_buffer.clear();
         }
 
-        if (ctx.cb_state.type == CodeBlockParser::State::IN_BLOCK) {
-            Logger::debug("[OF] >>> FORCE CLOSING unclosed codeblock");
+        // Force-close any remaining nested codeblocks
+        while (ctx.cb_state.type == CodeBlockParser::State::IN_BLOCK || ctx.cb_state.depth > 0) {
+            Logger::debug("[OF] >>> FORCE CLOSING unclosed codeblock (depth=%zu)", ctx.cb_state.depth);
             if (ctx.highlighter.is_active()) {
                 std::string remaining = ctx.highlighter.end();
                 Logger::debug("[OF] Highlighter end returned %zu bytes", remaining.size());
@@ -374,10 +394,34 @@ void process_format_buffer(const std::string& input,
                     std::cout << remaining << std::flush;
                 }
             }
-            Logger::debug("[OF] >>> OUTPUTTING closing fence: '```\\n'");
+            // Position cursor to saved indent before printing emergency close fence
+            std::cout << "\033[" << ctx.cb_state.fence_indent + 1 << "G";
             std::cout << "\033[0m```\n" << std::flush;
-            ctx.cb_state.type = CodeBlockParser::State::NONE;
-            ctx.cb_state.fence_indent = 0;
+            
+            if (ctx.cb_state.depth > 1) {
+                ctx.cb_state.depth--;
+                if (!ctx.cb_state.indent_stack.empty()) {
+                    ctx.cb_state.indent_stack.pop_back();
+                    ctx.cb_state.fence_indent = ctx.cb_state.indent_stack.empty() ? 0 : ctx.cb_state.indent_stack.back();
+                }
+                if (!ctx.code_block_stack.empty()) {
+                    ctx.code_lang = ctx.code_block_stack.back();
+                    ctx.code_block_stack.pop_back();
+                    ctx.highlighter.set_simple_mode(false);
+                    // Same conditional restart
+                    if (!ctx.code_lang.empty() && CodeBlockParser::is_language_supported(ctx.code_lang)) {
+                        ctx.highlighter.set_simple_mode(false);
+                        ctx.highlighter.start(ctx.code_lang, theme);
+                    }
+                }
+            } else {
+                ctx.cb_state.type = CodeBlockParser::State::NONE;
+                ctx.cb_state.fence_indent = 0;
+                ctx.cb_state.depth = 0;
+                ctx.cb_state.indent_stack.clear();
+                ctx.code_lang.clear();
+                ctx.code_block_stack.clear();
+            }
         }
 
         if (md_enabled && ctx.md_highlighter.is_active()) {
@@ -392,6 +436,6 @@ void process_format_buffer(const std::string& input,
     }
     
     Logger::debug("[OF] ========== process_format_buffer END ==========");
-    Logger::debug("[OF] Final state: ghost_active=%d, ghost_lines=%zu, last_rendered_length=%zu",
-                  ctx.ghost_active, ctx.ghost_lines, ctx.last_rendered_length);
+    Logger::debug("[OF] Final state: ghost_active=%d, ghost_lines=%zu, last_rendered_length=%zu, depth=%zu",
+                  ctx.ghost_active, ctx.ghost_lines, ctx.last_rendered_length, ctx.cb_state.depth);
 }

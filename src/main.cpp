@@ -116,6 +116,42 @@ static int display_conversation(const std::string& title, const ConversationHist
         }
         
         if (format_output) {
+
+            // Ensure every '</th'+'ink>' is followed by a newline so that a codeblock
+            // fence appearing right after it starts on a fresh line.
+            const char THINK_OPEN_ARR[]  = {'<', 't', 'h', 'i', 'n', 'k', '>', '\0'};
+            const char THINK_CLOSE_ARR[] = {'<', '/', 't', 'h', 'i', 'n', 'k', '>', '\0'};
+            
+            const std::string THINK_OPEN(THINK_OPEN_ARR);
+            const std::string THINK_CLOSE(THINK_CLOSE_ARR);
+            
+            bool in_think_block = false;
+            size_t pos = 0;
+            while (pos < content.size()) {
+                if (!in_think_block) {
+                    size_t open_pos = content.find(THINK_OPEN, pos);
+                    if (open_pos == std::string::npos) break;
+                    // Only recognise an opening tag if it starts a new line
+                    if (open_pos > 0 && content[open_pos - 1] != '\n') {
+                        pos = open_pos + THINK_OPEN.size();
+                        continue;
+                    }
+                    in_think_block = true;
+                    pos = open_pos + THINK_OPEN.size();
+                } else {
+                    size_t close_pos = content.find(THINK_CLOSE, pos);
+                    if (close_pos == std::string::npos) break;
+                    size_t after_close = close_pos + THINK_CLOSE.size();
+                    if (after_close >= content.size() || content[after_close] != '\n') {
+                        content.insert(after_close, "\n");
+                        pos = after_close + 1;
+                    } else {
+                        pos = after_close;
+                    }
+                    in_think_block = false;
+                }
+            }
+
             FormatContext ctx;
             if (simulate_streaming && !content.empty()) {
                 for (size_t i = 0; i < content.size(); i += args.stream_chunk_size) {
@@ -342,9 +378,9 @@ static std::string read_model_selection_interactive(const std::vector<std::strin
         }
     }
 
+    write(tty_fd, "\n", 1);
     tcsetattr(tty_fd, TCSANOW, &orig_tio);
     close(tty_fd);
-    write(tty_fd, "\n", 1);
 
     if (buf_idx == 0) return "";
 
@@ -387,12 +423,12 @@ static int run_chat_mode(Args& args) {
                 }
             }
             
-            // FIX: Always output conversation ID to stderr
+            // Always output conversation ID to stderr
             std::cerr << "[Conversation: " << target_title << "]\n";
         }
     }
 
-    // FIX: Allow continue without input - use else if to prevent double-check
+    // Allow continue without input - use else if to prevent double-check
     if (!target_title.empty() && input.empty()) {
         std::cerr << "[Continuing conversation: " << target_title << "]\n";
         Clipboard::set_content(target_title);
@@ -457,13 +493,14 @@ int main(int argc, char* argv[]) {
     std::setlocale(LC_ALL, "");
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
+    signal(SIGPIPE, SIG_IGN);  // FIX: Prevent crash when highlight binary is missing
     Config::instance().load_from_env();
 
     Args args = ArgParser::parse(argc, argv);
 
-    if (args.debug_logging) {
+    if (args.debug_logging || Config::instance().is_verbose()) {
         Logger::init(LogLevel::DEBUG);
-    } else if (!Config::instance().is_verbose()) {
+    } else {
         Logger::init(LogLevel::WARN);
     }
 

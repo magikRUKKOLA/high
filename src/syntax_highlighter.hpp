@@ -24,6 +24,7 @@ public:
         static std::string apply_simple_ansi(const std::string& text);
         void clear_residue(size_t rendered_width);
         void clear_ghost();
+        void set_preview_enabled(bool val) { preview_active_ = val; }
 
     private:
         int write_fd = -1;

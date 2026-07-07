@@ -23,7 +23,7 @@ public:
     static std::string get_timestamp() {
         struct timeval tv;
         gettimeofday(&tv, nullptr);
-        // FIX: Use thread-safe localtime_r
+        // Use thread-safe localtime_r
         struct tm tm_info;
         localtime_r(&tv.tv_sec, &tm_info);
         char buf[32];

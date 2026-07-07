@@ -32,7 +32,7 @@
  * 
  * Byte Ranges:
  *   0x30-0x3F : Parameter bytes (digits 0-9, semicolon ';', '<', '>', '=', '?')
- *   0x20-0x2F : Intermediate bytes (space, '!', '"', '#', '$', etc.)
+ *   0x20-0x2F : Intermediate bytes (space, !, ", #, $, %, &, etc.)
  *   0x40-0x7E : Final byte (terminates the sequence - the command)
  * 
  * Common Final Bytes (commands):
@@ -99,8 +99,8 @@ Loader* get_common_loader() {
     return g_common_loader;
 }
 
-const char* GHOST_SPINNERS[] = {"⠋", "⠙", "⠹", "⢸", "⣰", "⣤", "⣆"};
-const size_t GHOST_SPINNER_COUNT = 7;
+const char* GHOST_SPINNERS[] = {"⠋", "⠛", "⠙", "⠹", "⢸", "⣰", "⣤", "⣆", "⣇", "⡇"};
+const size_t GHOST_SPINNER_COUNT = 10;
 
 /*
  * =============================================================================
@@ -339,16 +339,14 @@ static size_t skip_ansi_sequence(const std::string& text, size_t pos) {
     }
     
     // =========================================================================
-    // CSI (Control Sequence Introducer): ESC [ or ESC ]
+    // CSI (Control Sequence Introducer): ESC [
     // Structure: ESC [ <params> <intermediates> <final>
     //            1B   5B  0x30-0x3F  0x20-0x2F      0x40-0x7E
     // =========================================================================
-    if (text[i] == '[' || text[i] == ']') {
-        i++;  // Skip '[' or ']'
+    if (text[i] == '[') {
+        i++;  // Skip '['
         
         // Skip parameter bytes (0x30-0x3F): digits, semicolons, <, >, =, ?
-        // Example: \x1b[48;5;20m - the "48;5;20" part
-        // Example: \x1b[?25l - the "?25" part (private mode)
         while (i < text.size() && 
                static_cast<unsigned char>(text[i]) >= 0x30 && 
                static_cast<unsigned char>(text[i]) <= 0x3F) {
@@ -356,7 +354,6 @@ static size_t skip_ansi_sequence(const std::string& text, size_t pos) {
         }
         
         // Skip intermediate bytes (0x20-0x2F): space, !, ", #, $, %, &, etc.
-        // Rarely used in practice but part of ANSI spec
         while (i < text.size() && 
                static_cast<unsigned char>(text[i]) >= 0x20 && 
                static_cast<unsigned char>(text[i]) <= 0x2F) {
@@ -364,7 +361,6 @@ static size_t skip_ansi_sequence(const std::string& text, size_t pos) {
         }
         
         // Skip final byte (0x40-0x7E): the command character
-        // Common: m (SGR), H (cursor position), A/B/C/D (cursor move), etc.
         if (i < text.size() && 
             static_cast<unsigned char>(text[i]) >= 0x40 && 
             static_cast<unsigned char>(text[i]) <= 0x7E) {
@@ -492,7 +488,7 @@ static size_t skip_ansi_sequence(const std::string& text, size_t pos) {
  * 
  * Calculates display width of text, treating ANSI escape sequences as 0 width.
  * 
- * This is CRITICAL for ghost text in preview mode (--preview flag).
+ * This is CRITICAL for ghost text calculation in preview mode (--preview flag).
  * 
  * Problem (before fix):
  *   When streaming with --chunk-size 1, ANSI sequences like \x1b[48;5;20m
@@ -939,10 +935,10 @@ std::string hex_encode_string(const std::string& s, size_t max_len) {
  * show_cursor(): Show cursor after output
  *   Sends: \x1b[?25h (private mode - show cursor)
  * 
- * clear_screen(): Clear entire screen and move cursor to home
- *   Sends: \x1b[H (cursor home) + \x1b[2J (erase display)
+ * clear_screen(): Clear screen and move cursor to home
+ *   Sends: \x1b[H + \x1b[2J
  * 
- * Reference: docs/ANSI-escape-sequences.md - Cursor Controls, Colors, Screen Modes
+ * Reference: docs/ANSI-escape-sequences.md - Cursor Controls, Screen Modes
  * =============================================================================
  */
 void reset_terminal() {
@@ -973,78 +969,55 @@ void clear_screen() {
  * Remove Think Tags
  * =============================================================================
  * 
- * Strips
-<think>
-
-...
-</think>
-
-
-
-tags and their content from assistant output.
- * Used with --remove-think-tags flag to hide reasoning content.
+ * Strips <think>...</think> tags and their content from assistant output.
  * 
- * Format:
- *   Start: \n
-<think>
-
-\n
- *   End:   \n
-</think>
-
-
-
-\n\n
- * 
- * Example:
- *   Input:  "Let me think\n
-<think>
-
-\nHmm, the answer is...\n
-</think>
-
-
-
-\n\n42"
- *   Output: "Let me think\n42"
- * 
- * Used for: Models that output reasoning in think tags (e.g., DeepSeek-R1)
+ * Rules:
+ *   1. Only <think> that starts a line is considered a real tag.
+ *   2. The FIRST </think> after the opening tag is the matching close,
+ *      regardless of whether it starts a line.
+ *   3. If no matching </think> exists, the rest of the text is kept
+ *      (not discarded).
  * =============================================================================
  */
 std::string remove_think_tags(const std::string& text) {
     std::string result;
     result.reserve(text.size());
-    
-    bool in_think_tag = false;
-    size_t i = 0;
-    
-    while (i < text.size()) {
-        if (!in_think_tag && i + 9 <= text.size() && 
-            text[i] == '\n' && 
-            text[i+1] == '<' && text[i+2] == 't' && text[i+3] == 'h' &&
-            text[i+4] == 'i' && text[i+5] == 'n' && text[i+6] == 'k' &&
-            text[i+7] == '>' && text[i+8] == '\n') {
-            in_think_tag = true;
-            i += 9;
+
+    const char OPEN_TAG[] = {'<', 't', 'h', 'i', 'n', 'k', '>', '\0'};
+    const char CLOSE_TAG[] = {'<', '/', 't', 'h', 'i', 'n', 'k', '>', '\0'};
+    const size_t OPEN_LEN = 7;
+    const size_t CLOSE_LEN = 8;
+
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t open_pos = text.find(OPEN_TAG, pos, OPEN_LEN);
+        if (open_pos == std::string::npos) {
+            result.append(text, pos, std::string::npos);
+            break;
+        }
+
+        // Only treat as a think tag if it starts a line
+        bool open_at_line_start = (open_pos == 0 || text[open_pos - 1] == '\n');
+        if (!open_at_line_start) {
+            result.append(text, pos, open_pos - pos + OPEN_LEN);
+            pos = open_pos + OPEN_LEN;
             continue;
         }
-        
-        if (in_think_tag && i + 11 <= text.size() &&
-            text[i] == '\n' &&
-            text[i+1] == '<' && text[i+2] == '/' && text[i+3] == 't' &&
-            text[i+4] == 'h' && text[i+5] == 'i' && text[i+6] == 'n' &&
-            text[i+7] == 'k' && text[i+8] == '>' && text[i+9] == '\n' &&
-            text[i+10] == '\n') {
-            in_think_tag = false;
-            i += 11;
-            continue;
+
+        result.append(text, pos, open_pos - pos);
+
+        // Find the FIRST </think> after the opening tag
+        size_t close_pos = text.find(CLOSE_TAG, open_pos + OPEN_LEN, CLOSE_LEN);
+        if (close_pos == std::string::npos) {
+            // No matching close tag: keep the rest as literal text
+            result.append(text, open_pos, std::string::npos);  // FIX: was 'pos', duplicating prefix
+            break;
         }
-        
-        if (!in_think_tag) {
-            result += text[i];
-        }
-        i++;
+
+        pos = close_pos + CLOSE_LEN;
+        if (pos < text.size() && text[pos] == '\r') pos++;
+        if (pos < text.size() && text[pos] == '\n') pos++;
     }
-    
+
     return result;
 }
