@@ -1,0 +1,283 @@
+flowchart TD
+    %% ========================================================================
+    %% LAYER 0: USER & ENVIRONMENT
+    %% ========================================================================
+    subgraph L0 ["User & Environment"]
+        U("[User executes: high [options] [prompt]]") --> Argv["argv[] / argc"]
+        Env["Environment Variables<br/>LLM_API_BASE / LLM_VERBOSE<br/>HIGH_PREVIEW_CODE / LLM_TAB_WIDTH<br/>LLM_TAB_WIDTH / HTTP_PROXY"]
+    end
+
+    %% ========================================================================
+    %% LAYER 1: INITIALIZATION & SIGNALS
+    %% ========================================================================
+    subgraph L1 ["Initialization"]
+        Argv --> Parse["ArgParser::parse()<br/>FlagHandler unified bool/string actions"]
+        Env --> ConfigLoad["Config::instance().load_from_env()"]
+        Parse --> ConfigLoad
+        ConfigLoad --> Signals["signal(SIGINT/SIGTERM → g_running=false)<br/>signal(SIGPIPE, SIG_IGN)  ← FIX"]
+        Signals --> Locale["setlocale(LC_ALL, '')"]
+        Locale --> CurlInit["curl_global_init(CURL_GLOBAL_DEFAULT)"]
+        CurlInit --> LangLoad["ensure_languages_loaded()<br/>Double-checked locking + load_supported_languages()"]
+    end
+
+    %% ========================================================================
+    %% LAYER 2: MAIN ROUTER
+    %% ========================================================================
+    subgraph L2 ["Main Router"]
+        LangLoad --> Router{"Command Mode"}
+        Router -->|banner| Banner["Banner::run()<br/>Alt-buffer / 30 FPS / particle loop"]
+        Router -->|list| ListFlow["Conversation List Workflow"]
+        Router -->|show| ShowFlow["Conversation Display Workflow"]
+        Router -->|models| Models["APIClient::fetch_models()<br/>HTTP GET /v1/models"]
+        Router -->|default| ChatFlow["Chat Streaming Workflow"]
+    end
+
+    %% ========================================================================
+    %% LAYER 3: CHAT WORKFLOW (OUTER SHELL)
+    %% ========================================================================
+    subgraph L3 ["Chat Streaming Workflow — Outer Shell"]
+        ChatFlow --> Stdin["read_stdin()<br/>if piped input detected"]
+        Stdin --> BuildHist["Assemble ConversationHistory deque&lt;Message&gt;<br/>New / Continue / Branch / Isolate"]
+        BuildHist --> FetchModels["APIClient::fetch_models()<br/>Match: exact → lower → prefix → regex → fallback[0]"]
+        FetchModels --> LoaderStart["Loader::start()<br/>Spinner thread on stderr<br/>Atomic color cycling 28→78"]
+        LoaderStart --> SendReq["APIClient::send_chat_request()<br/>Build jansson JSON payload"]
+    end
+
+    %% ========================================================================
+    %% LAYER 4: CURL / RETRY / SSE INGEST
+    %% ========================================================================
+    subgraph L4 ["CURL Retry Loop & SSE Ingest"]
+        SendReq --> CurlSetup["setup_curl_common()<br/>Proxy / User-Agent / error_buffer"]
+        CurlSetup --> Perform["curl_easy_perform()<br/>xferinfo_callback checks g_running atomic"]
+        Perform --> RetryGate{"Result?"}
+        RetryGate -->|HTTP 502/503/504<br/>attempt < max_retries| Backoff["Sleep 1000ms<br/>SSEParser::clear() ← FIX<br/>Reset buffer + tool_state + in_reasoning"]
+        Backoff --> CurlSetup
+        RetryGate -->|CURLE_ABORTED| AbortReq["Return false<br/>User Ctrl-C"]
+        RetryGate -->|Other retryable| Backoff
+        RetryGate -->|Non-retryable| FailReq["Return false"]
+        RetryGate -->|HTTP 200| StreamOK["success = true<br/>parser.flush()"]
+
+        StreamOK --> SSEFeed["SSEParser::feed(ptr, size)<br/>Append to internal buffer"]
+        SSEFeed --> LineLoop["While '\\n' found in buffer"]
+        LineLoop --> StripCR["Strip trailing '\\r'<br/>Handle CRLF"]
+        StripCR --> DataCheck{"Line starts with 'data:' ?"}
+        DataCheck -->|Yes| Extract["Extract payload after 'data: '<br/>Trim leading spaces"]
+        Extract --> DoneCheck{"Payload == '[DONE]' ?"}
+        DoneCheck -->|Yes| EmitDone["Emit EventType::DONE<br/>Clear tool_state vectors"]
+        DoneCheck -->|No| JsonParse["json_loads() → parse_event()"]
+        JsonParse --> EvType{Delta field?}
+        EvType -->|content| EvContent["EventType::CONTENT"]
+        EvType -->|reasoning_content| EvReason["EventType::REASONING"]
+        EvType -->|tool_calls| EvTool["EventType::TOOL_CALL<br/>Index-based accumulation into tool_state vectors"]
+        DataCheck -->|No| Drop["Ignore / drop line"]
+
+        SSEFeed -.->|remaining buffer| Flush["SSEParser::flush()<br/>FIX: Append synthetic '\\n' to buffer<br/>so line loop catches final partial lines"]
+    end
+
+    %% ========================================================================
+    %% LAYER 5: CHAT CONTROLLER CALLBACK
+    %% ========================================================================
+    subgraph L5 ["ChatController SSE Callback & Think Tags"]
+        EvContent --> CB["ChatController callback lambda"]
+        EvReason --> CB
+        EvTool --> ToolLog["std::cerr << [Tool: name]"]
+        EmitDone --> DoneHandler["Set done atomic<br/>Close reasoning tags if open"]
+
+        CB --> ReasoningCheck{Event type?}
+        ReasoningCheck -->|REASONING| ReasoningOpen["if (!in_reasoning)"]
+        ReasoningOpen --> ThinkOpenPath{"format_output ?"}
+        ThinkOpenPath -->|Yes| ThinkOpenFmt["process_format_buffer(THINK_OPEN, ..., false)<br/>← FIX: was direct std::cout"]
+        ThinkOpenPath -->|No| ThinkOpenRaw["std::cout << THINK_OPEN"]
+        ThinkOpenFmt --> ThinkOpenArr["THINK_OPEN built from char[]<br/>{'\\n','<','t','h','i','n','k','>','\\n'}<br/>assistant_response += THINK_OPEN"]
+        ThinkOpenRaw --> ThinkOpenArr
+        ThinkOpenArr --> InReasoning["in_reasoning = true"]
+
+        ReasoningCheck -->|CONTENT| ContentCheck["if (in_reasoning)"]
+        ContentCheck --> ThinkClosePath{"format_output ?"}
+        ThinkClosePath -->|Yes| ThinkCloseFmt["process_format_buffer(THINK_CLOSE, ..., true)"]
+        ThinkClosePath -->|No| ThinkCloseRaw["std::cout << THINK_CLOSE"]
+        ThinkCloseFmt --> ThinkCloseArr["THINK_CLOSE built from char[]<br/>{'\\n','<','/','t','h','i','n','k','>','\\n'}<br/>assistant_response += THINK_CLOSE"]
+        ThinkCloseRaw --> ThinkCloseArr
+        ThinkCloseArr --> ResetFmt["format_ctx.md_highlighter.reset()<br/>cb_state = State{}<br/>at_line_start = true<br/>parse_buffer.clear()"]
+
+        CB --> StreamChunks["Stream chunks to output"]
+        StreamChunks --> Expand["expand_tabs(chunk)<br/>LLM_TAB_WIDTH / default 8"]
+        Expand --> ProcFmt["process_format_buffer(chunk, ctx, theme, false)"]
+    end
+
+    %% ========================================================================
+    %% LAYER 6: FORMATTING PIPELINE — THE HEART
+    %% ========================================================================
+    subgraph L6 ["Formatting Pipeline — process_format_buffer()"]
+        ProcFmt --> Accumulate["ctx.parse_buffer += expand_tabs(input)"]
+        Accumulate --> PreviewCheck{"Preview enabled<br/>&& cb_state.type == IN_BLOCK ?"}
+
+        %% Ghost Text Subsystem
+        subgraph L6_Ghost ["Ghost Text Subsystem"]
+            PreviewCheck -->|Yes| GhostExtract["Find last '\\n' in parse_buffer<br/>Extract current_line suffix"]
+            GhostExtract --> GhostHash{"std::hash(current_line) != ctx.ghost_hash ?"}
+            GhostHash -->|Yes| ShowGhost["show_ghost_text(current_line)"]
+            ShowGhost --> GhostWidth["calculate_display_width_no_ansi(text)<br/>↓"]
+            GhostWidth --> GhostLines["calculate_line_count()<br/>lines_needed = ceil(text_width / term_width)"]
+            GhostLines --> GhostClear["If ghost_active: clear_ghost_text()<br/>\\r or \\033[nF → cursor to BOL"]
+            GhostClear --> GhostPrint["std::cout << text"]
+            GhostPrint --> GhostState["Update:<br/>ghost_active=true<br/>ghost_lines<br/>ghost_hash<br/>last_term_width"]
+            GhostHash -->|No| SkipGhost
+            PreviewCheck -->|No| SkipGhost
+        end
+
+        %% Width Calculation Layer
+        subgraph L6_Width ["Display Width & ANSI Layer"]
+            GhostWidth --> SkipAnsi["skip_ansi_sequence()<br/>CSI ESC [ … final<br/>OSC ESC ] … BEL/ST<br/>DCS ESC P … ESC \\<br/>APC ESC _ … ESC \\"]
+            SkipAnsi --> Utf8Width["get_utf8_char_width()<br/>mbrtowc() → wcwidth()<br/>Emoji override = 2<br/>ZWJ / Variation Selector = 0"]
+            Utf8Width --> LineCount["calculate_line_count(text, term_width)<br/>Simulate terminal wrapping"]
+        end
+
+        %% CodeBlockParser FSM
+        subgraph L6_Parser ["CodeBlockParser State Machine"]
+            SkipGhost --> ParseLoop["CodeBlockParser::parse_next()"]
+            ParseLoop --> State{cb_state.type}
+
+            State -->|NONE| NoneStart["at_line_start ?<br/>pending_indent + count leading spaces"]
+            NoneStart -->|Found ```<br/>indent ≤ 16| NoneLang["extract_language_from_fence()<br/>1. Check supported_languages directly<br/>2. Fallback to extension_to_lang map"]
+            NoneLang -->|Lang valid / invalid / empty| OpenEvent["OPEN_FENCE_COMPLETE<br/>depth=1, indent_stack=[indent], fence_indent=indent"]
+            NoneStart -->|No fence| TextNone["TEXT_CHUNK<br/>Consume up to next ``` or \\n"]
+
+            State -->|IN_BLOCK| BlockStart["at_line_start ?<br/>Count indent vs fence_indent"]
+            BlockStart -->|Indent match<br/>``` + \\n/EOF| CloseEvent["CLOSE_FENCE<br/>If depth>1: depth--, pop stack<br/>Else: type=NONE, depth=0"]
+            BlockStart -->|Indent match<br/>``` + text| NestedOpen["NESTED OPEN_FENCE<br/>depth++, push indent"]
+            BlockStart -->|Else| TextBlock["TEXT_CHUNK<br/>Consume up to \\n"]
+        end
+
+        %% Open Fence Handler
+        subgraph L6_Open ["Open Fence Handler"]
+            OpenEvent --> FmtOpen["Formatter: OPEN_FENCE_COMPLETE"]
+            FmtOpen --> ClearGhost1["If ghost_active:<br/>clear_ghost_text()"]
+            ClearGhost1 --> EndMd["If md_highlighter active:<br/>md_highlighter.end()<br/>Strip trailing \\n<br/>Output remaining"]
+            EndMd --> PushStack["If highlighter active:<br/>highlighter.end()<br/>Output remaining<br/>Push ctx.code_lang to code_block_stack"]
+            PushStack --> PrintOpenFence["FIX: std::string(fence_indent, ' ') + ```lang\\n"]
+            PrintOpenFence --> StartHl["highlighter.start(lang, theme)<br/>If supported & !simple_mode:<br/>pipe() → fork() → dup2() → execlp('highlight', '-O', 'xterm256', '-S', lang, ...)"]
+            StartHl --> HlCheck{"Child PID"}
+            HlCheck -->|OK| HlActive["read_fd / write_fd set<br/>fcntl(O_NONBLOCK)<br/>highlight_dead_=false"]
+            HlCheck -->|Fail| HlDead["highlight_dead_=true<br/>🐛 SIGPIPE not ignored → crash on write"]
+        end
+
+        %% Text Chunk Handler
+        subgraph L6_Text ["Text Chunk Handler"]
+            TextBlock --> FmtText["Formatter: TEXT_CHUNK"]
+            TextNone --> FmtText
+            FmtText --> InBlock{cb_state.type == IN_BLOCK ?}
+
+            InBlock -->|Yes| HlFeed["highlighter.feed(content)"]
+            HlFeed --> HlMode{simple_mode_ ?}
+            HlMode -->|Yes| SimpleHl["apply_simple_ansi()<br/>Bold ** / Italic * / Inline ` / Strikethrough ~~"]
+            HlMode -->|No| ForkedHl["write(write_fd, content)<br/>poll(read_fd, 10ms) × 100<br/>read() highlighted output<br/>strip_leading_ansi_reset_newline()"]
+
+            InBlock -->|No| MdFeed["md_highlighter.feed(content)<br/>Simple mode only"]
+
+            ForkedHl --> HlPreview{Preview active ?}
+            SimpleHl --> HlPreview
+            MdFeed --> MdPreview{Preview active ?}
+
+            HlPreview -->|Yes| HlGhostShow["show_ghost(line_content)<br/>Hash tracking → ghost_lines → ghost_text_width_"]
+            HlGhostShow --> HlNewline{Line complete ?}
+            HlNewline -->|Yes| HlClearGhost["clear_ghost()<br/>Move cursor to BOL of ghost lines"]
+            HlClearGhost --> HlOutput["Output highlighted text"]
+            HlOutput --> HlResidue["clear_residue(rendered_width)<br/>\\033[s save → \\033[nF move up → \\033[nG move col → \\033[K clear → \\033[u restore<br/>FIX: if rendered_width % term_width == 0 → col = term_width (not 0)"]
+
+            MdPreview -->|Yes| MdGhostShow["show_ghost(line_content)"]
+            MdGhostShow --> MdNewline{Line complete ?}
+            MdNewline -->|Yes| MdClearGhost["clear_ghost()"]
+            MdClearGhost --> MdOutput["Output styled text"]
+            MdOutput --> MdResidue["clear_residue(rendered_width)"]
+        end
+
+        %% Close Fence Handler
+        subgraph L6_Close ["Close Fence Handler"]
+            CloseEvent --> FmtClose["Formatter: CLOSE_FENCE"]
+            FmtClose --> ClearGhost2["If ghost_active:<br/>clear_ghost_text()"]
+            ClearGhost2 --> EndHl2["highlighter.end()<br/>Drain pipe: close(write_fd) → read until EOF → waitpid()<br/>Strip trailing \\n from remaining<br/>Output remaining"]
+            EndHl2 --> PrintClose["\\033[fence_indent+1]G<br/>\\033[0m```\\n"]
+            PrintClose --> PopStack{code_block_stack empty ?}
+            PopStack -->|No| RestoreParent["Pop parent lang<br/>highlighter.start(parent_lang, theme)"]
+            PopStack -->|Yes| RestoreMd["md_highlighter.start('', theme)<br/>Return to markdown"]
+        end
+
+        %% Final Flush
+        subgraph L6_Final ["Final Flush (is_final == true)"]
+            ParseLoop -->|is_final<br/>NEED_MORE_DATA| FinalCheck["If parse_buffer non-empty:<br/>Feed to active highlighter or raw stdout"]
+            FinalCheck --> ForceClose{"cb_state.type == IN_BLOCK<br/>|| depth > 0 ?"}
+            ForceClose -->|Yes| ForceLoop["While unclosed blocks remain:"]
+            ForceLoop --> ForceEnd["highlighter.end() → output remaining"]
+            ForceEnd --> ForcePrint["FIX: \\033[fence_indent+1]G<br/>\\033[0m```\\n"]
+            ForcePrint --> ForcePop["If depth>1: pop stack & restore parent<br/>Else: clear all state"]
+            ForcePop --> ForceClose
+            ForceClose -->|No| EndMdFinal["If md_highlighter active:<br/>md_highlighter.end() → flush remaining"]
+        end
+    end
+
+    %% ========================================================================
+    %% LAYER 7: PERSISTENCE & CLEANUP
+    %% ========================================================================
+    subgraph L7 ["Persistence & Cleanup"]
+        DoneHandler --> LoaderStop["Loader::stop()<br/>Join spinner thread<br/>Clear spinner line"]
+        LoaderStop --> SaveCheck{Interrupted ?}
+        SaveCheck -->|Yes| PromptSave["UIManager::prompt_save_interrupted()<br/>Open /dev/tty raw mode<br/>[Y/n] prompt → default YES on Enter"]
+        PromptSave -->|Save| SaveConv["ConversationManager::save_conversation()<br/>1. Write JSON to .tmp<br/>2. Rename old → .bak<br/>3. Rename .tmp → final.json"]
+        PromptSave -->|Discard| DiscardLog["std::cerr << [Conversation discarded]"]
+        SaveCheck -->|No| SaveConv
+        SaveConv --> Clipboard["Clipboard::set_content(title)"]
+    end
+
+    %% ========================================================================
+    %% LAYER 8: DISPLAY / REPLAY WORKFLOW
+    %% ========================================================================
+    subgraph L8 ["Conversation Display / Replay Workflow"]
+        ShowFlow --> LoadConv["ConversationManager::load_conversation()<br/>jansson parse: model, messages[], interrupted, timestamp"]
+        LoadConv --> ThinkFix["Sanitize think tags for display<br/>Inject \\n after </think> if missing"]
+        ThinkFix --> PerMessage["Iterate messages deque"]
+        PerMessage --> RoleLabel["Print role header"]
+        RoleLabel --> RemoveThink["If --remove-think-tags && assistant:<br/>remove_think_tags()<br/>Char array find + line-start check + prefix fix"]
+        RemoveThink --> FormatReplay["process_format_buffer per message<br/>If preview enabled: chunked replay with delay"]
+        FormatReplay --> Out1["stdout"]
+    end
+
+    %% ========================================================================
+    %% LAYER 9: LIST / TUI WORKFLOW
+    %% ========================================================================
+    subgraph L9 ["Conversation List Workflow"]
+        ListFlow --> Count["ConversationManager::count_conversations()<br/>Fast: directory iteration only"]
+        Count --> Paginate["ConversationManager::list_conversations_page()<br/>1. Scan filenames + mtime (no JSON parse)<br/>2. Sort by mtime desc<br/>3. Parse JSON metadata ONLY for visible page"]
+        Paginate --> TTYCheck{"isatty(stdin) && isatty(stdout) ?"}
+        TTYCheck -->|Yes| Interactive["UIManager::select_conversation_interactive()<br/>Raw termios mode: ICANON off, ECHO off"]
+        Interactive --> Nav["Input loop: read() + poll()<br/>Escape sequence parser:<br/>Read up to 3 bytes after ESC<br/>Param accumulation for ~ sequences"]
+        Nav --> Render["render_menu()<br/>For each visible item:<br/>- trim_to_width() with ANSI width calc<br/>- calculate_line_count() for wrapping<br/>- Selected row: \\033[7m\\033[1m (reverse+bright)"]
+        Render --> FooterFix["FIX: \\033[0m before footer<br/>Prevents footer inheriting reverse video"]
+        FooterFix --> Footer["Print footer:<br/>\\033[2m(Page N of M) [n=next, p=prev]\\033[22m"]
+        Interactive -->|Enter| ShowFlow
+        TTYCheck -->|No| Plain["Plain text paged output<br/>Pause every (term_height - 2) lines"]
+    end
+
+    %% ========================================================================
+    %% LAYER 10: GLOBAL CLEANUP
+    %% ========================================================================
+    subgraph L10 ["Global Cleanup"]
+        Banner --> Cleanup["Logger::shutdown()<br/>curl_global_cleanup()<br/>reset_terminal() / show_cursor()"]
+        Models --> Cleanup
+        SaveConv --> Cleanup
+        DiscardLog --> Cleanup
+        Out1 --> Cleanup
+        Plain --> Cleanup
+        AbortReq --> Cleanup
+        FailReq --> Cleanup
+    end
+
+    %% Cross-layer styling
+    style L6 fill:#1a1a2e,stroke:#16213e,stroke-width:2px
+    style L6_Ghost fill:#0f3460,stroke:#1a1a2e,stroke-width:1px
+    style L6_Width fill:#0f3460,stroke:#1a1a2e,stroke-width:1px
+    style L6_Parser fill:#0f3460,stroke:#1a1a2e,stroke-width:1px
+    style L6_Open fill:#0f3460,stroke:#1a1a2e,stroke-width:1px
+    style L6_Text fill:#0f3460,stroke:#1a1a2e,stroke-width:1px
+    style L6_Close fill:#0f3460,stroke:#1a1a2e,stroke-width:1px
+    style L6_Final fill:#0f3460,stroke:#1a1a2e,stroke-width:1px
